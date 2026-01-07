@@ -26,6 +26,8 @@ const settings = {
     VIDEO_DEVICE: 'video=HD Pro Webcam C920',
     AUDIO_DEVICE: 'audio=Microphone (HD Pro Webcam C920)',
     WEBSOCKET_URL: 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent',
+    FPS: 2, // Target FPS for processing/sending
+    CAMERA_FPS: 30 // Hardware capture FPS
 };
 
 export default settings;

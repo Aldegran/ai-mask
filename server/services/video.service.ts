@@ -1,47 +1,105 @@
 import { spawn } from 'child_process';
-import { Writable } from 'stream';
-import WebSocket from 'ws';
-import config from '../config/index';
+import EventEmitter from 'events';
+import settings from '../config/index';
 
-export class VideoService {
-    private ws: WebSocket;
+export class VideoService extends EventEmitter {
+    private static instance: VideoService;
     private ffmpegProcess: any;
+    private buffer: Buffer = Buffer.alloc(0);
+    private isRunning: boolean = false;
+    
+    // Throttling logic
+    private lastFrameTime: number = 0;
+    private frameInterval: number = 1000 / settings.FPS;
 
-    constructor(ws: WebSocket) {
-        this.ws = ws;
+    private constructor() {
+        super();
+    }
+
+    public static getInstance(): VideoService {
+        if (!VideoService.instance) {
+            VideoService.instance = new VideoService();
+        }
+        return VideoService.instance;
     }
 
     public startVideoCapture() {
-        const videoSource = `video=YOUR_WEBCAM_NAME`; // Replace with your webcam name
-        this.ffmpegProcess = spawn('ffmpeg', [
-            '-f', 'dshow',
-            '-i', videoSource,
-            '-vf', 'scale=640:480',
-            '-frames', '1',
-            '-f', 'image2pipe',
-            '-vcodec', 'mjpeg',
-            '-pix_fmt', 'rgb24',
-            '-r', '1', // 1 frame per second
-            'pipe:1'
-        ]);
+        if (this.isRunning) return;
+        this.isRunning = true;
 
-        this.ffmpegProcess.stdout.on('data', (data: Buffer) => {
-            const base64Image = data.toString('base64');
-            this.ws.send(JSON.stringify({ type: 'video', data: base64Image }));
+        const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
+        console.log("Starting Video Capture Service...");
+
+        // Capture at High FPS (hardware native) to avoid buffer lag
+        const args = [
+            '-f', 'dshow',
+            '-rtbufsize', '100M',
+            '-i', settings.VIDEO_DEVICE,
+            '-r', settings.CAMERA_FPS.toString(),
+            '-c:v', 'mjpeg',
+            '-q:v', '10',
+            '-f', 'image2pipe',
+            'pipe:1'
+        ];
+
+        this.ffmpegProcess = spawn(ffmpegPath, args);
+
+        this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
+            this.handleData(chunk);
         });
 
         this.ffmpegProcess.stderr.on('data', (data: Buffer) => {
-            console.error(`FFmpeg error: ${data}`);
+           // console.error(`FFmpeg stderr: ${data}`); 
         });
 
         this.ffmpegProcess.on('exit', (code: number) => {
-            console.log(`FFmpeg process exited with code ${code}`);
+            console.log(`Video FFmpeg exited with code ${code}`);
+            this.isRunning = false;
         });
+    }
+
+    private handleData(chunk: Buffer) {
+        this.buffer = Buffer.concat([this.buffer, chunk]);
+        
+        let offset = 0;
+        
+        while (true) {
+            const soi = this.buffer.indexOf(Buffer.from([0xFF, 0xD8]), offset);
+            if (soi === -1) {
+                // Safety cleanup
+                if (this.buffer.length > 10 * 1024 * 1024) this.buffer = Buffer.alloc(0);
+                break;
+            }
+
+            const eoi = this.buffer.indexOf(Buffer.from([0xFF, 0xD9]), soi);
+            if (eoi === -1) {
+                if(soi > 0) this.buffer = this.buffer.slice(soi);
+                break;
+            }
+
+            const frameData = this.buffer.slice(soi, eoi + 2);
+            
+            // --- FPS Control Logic ---
+            const now = Date.now();
+            if (now - this.lastFrameTime >= this.frameInterval) {
+                this.lastFrameTime = now;
+                // Broadcast frame
+                this.emit('frame', frameData);
+            }
+            // --------------------------
+
+            offset = eoi + 2;
+        }
+
+        if (offset > 0) {
+            this.buffer = this.buffer.slice(offset);
+        }
     }
 
     public stopVideoCapture() {
         if (this.ffmpegProcess) {
-            this.ffmpegProcess.kill();
+            this.ffmpegProcess.kill('SIGKILL');
+            this.isRunning = false;
         }
     }
 }
