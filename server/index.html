@@ -15,6 +15,11 @@
                     <input type="checkbox" id="useGeminiCk" style="width: 20px; height: 20px;">
                     USE GEMINI AI
                 </label>
+
+                <label style="display: flex; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="muteMicCk" style="width: 20px; height: 20px;">
+                    MUTE MIC ECHO
+                </label>
             </div>
 
             <div id="status" style="color: #888;">System Status: Idle</div>
@@ -28,6 +33,7 @@
         <script>
             const startBtn = document.getElementById('startAudioBtn');
             const useGeminiCk = document.getElementById('useGeminiCk');
+            const muteMicCk = document.getElementById('muteMicCk');
             const statusDiv = document.getElementById('status');
             const videoImg = document.getElementById('videoStream');
             const videoContainer = document.getElementById('videoContainer');
@@ -115,15 +121,13 @@
                     audioSocket.binaryType = 'arraybuffer';
                     
                     audioSocket.onmessage = (event) => {
+                        if (muteMicCk.checked) return;
+
                         if (audioCtx.state === 'suspended') audioCtx.resume();
                         
-                        const rawData = new Int16Array(event.data); // Server sends s16le
+                        const rawData = new Int16Array(event.data); 
                         const floatArray = new Float32Array(rawData.length);
-                        
-                        // Convert Int16 to Float32
-                        for(let i=0; i<rawData.length; i++) {
-                            floatArray[i] = rawData[i] / 32768.0;
-                        }
+                        for(let i=0; i<rawData.length; i++) floatArray[i] = rawData[i] / 32768.0;
 
                         const buffer = audioCtx.createBuffer(1, floatArray.length, 16000);
                         buffer.copyToChannel(floatArray, 0);
@@ -135,6 +139,24 @@
                         if (nextTime < audioCtx.currentTime) nextTime = audioCtx.currentTime;
                         source.start(nextTime);
                         nextTime += buffer.duration;
+                    };
+
+                    // 5. TTS Monitor (Voice Response) - Mixes with Mic
+                    const ttsSocket = new WebSocket(protocol + '//' + window.location.host + '/monitor/tts');
+                    ttsSocket.binaryType = 'arraybuffer';
+                    ttsSocket.onmessage = (event) => {
+                        if (audioCtx.state === 'suspended') audioCtx.resume();
+                        
+                        // WAV file header is 44 bytes. Simple skip or decode?
+                        // decodeAudioData is async and handles full WAV files perfectly.
+                        // Since Piper sends full WAV files as blobs.
+                        audioCtx.decodeAudioData(event.data, (buffer) => {
+                            const source = audioCtx.createBufferSource();
+                            source.buffer = buffer;
+                            source.connect(audioCtx.destination);
+                            source.start(0); // Play immediately mixed
+                            log("Playing TTS Audio...");
+                        }, (err) => console.error("Error decoding TTS audio", err));
                     };
 
                     statusDiv.innerText = "System Active. Ready to use Gemini.";

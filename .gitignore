@@ -137,5 +137,10 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-server/tools/piper/
 server/package-lock.json
+server/tools/piper/output.wav
+server/tools/piper/piper.zip
+server/tools/piper/uk_UA-model.onnx
+server/tools/piper/uk_UA-model.onnx.json
+server/tools/piper/uk_UA-ukrainian_tts-medium.onnx
+server/tools/piper/uk_UA-ukrainian_tts-medium.onnx.json

@@ -20,6 +20,7 @@
     "moment": "^2.29.1",
     "node-fetch": "^3.3.2",
     "node-record-lpcm16": "^1.0.0",
+    "say": "^0.16.0",
     "ws": "^8.0.0"
   },
   "devDependencies": {

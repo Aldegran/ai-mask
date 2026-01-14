@@ -12,6 +12,7 @@ global.log = console.log;
 import { GeminiService } from './services/gemini.service';
 import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
+import { TTSService } from './services/tts.service';
 import settings from "./config/index";
 
 dotenv.config();
@@ -34,10 +35,18 @@ let isGeminiActive = false;
 const videoService = VideoService.getInstance();
 const audioService = AudioService.getInstance();
 const geminiService = GeminiService.getInstance();
+const ttsService = TTSService.getInstance();
 
 console.log("Starting Capture Services...");
 videoService.startVideoCapture();
 audioService.startAudioCapture();
+
+// Wire Gemini text response to TTS
+geminiService.on('text', (text: string) => {
+    console.log(`[System] Gemini said: "${text}". Queuing TTS...`);
+    ttsService.speak(text);
+});
+
 
 // Validates that services are emitting data
 let videoFrameCount = 0;
@@ -87,19 +96,37 @@ wss.on('connection', (ws: WebSocket, req: any) => {
     if (pathname === '/monitor/audio') {
         console.log('Client connected: Audio Monitor');
         
-        const onAudio = (buffer: Buffer) => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(buffer);
-            }
-        };
-        audioService.on('audio', onAudio);
+    const onAudio = (buffer: Buffer) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(buffer);
+        }
+    };
+    audioService.on('audio', onAudio);
 
-        ws.on('close', () => {
-            audioService.off('audio', onAudio);
-            console.log('Audio Monitor disconnected');
-        });
-        return;
-    }
+    ws.on('close', () => {
+        audioService.off('audio', onAudio);
+        console.log('Audio Monitor disconnected');
+    });
+    return;
+}
+
+// 3. TTS MONITOR (Output Voice)
+if (pathname === '/monitor/tts') {
+    console.log('Client connected: TTS Monitor');
+
+    const onTTS = (buffer: Buffer) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(buffer);
+        }
+    };
+    ttsService.on('audio', onTTS);
+
+    ws.on('close', () => {
+        ttsService.off('audio', onTTS);
+        console.log('TTS Monitor disconnected');
+    });
+    return;
+}
 
     // 3. SYSTEM CONTROL (Gemini)
     if (pathname === '/control') {
