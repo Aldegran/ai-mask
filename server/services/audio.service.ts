@@ -24,12 +24,12 @@ export class AudioService extends EventEmitter {
         if (this.isRunning) return;
         this.isRunning = true;
 
-        console.log("Starting Audio Capture Service...");
+        //console.log("Starting Audio Capture Service...");
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
         // Helper to start process
         const startProcess = (deviceName: string) => {
-            console.log(`[Audio] Connecting to device: "${deviceName}"`);
+            console.log(global.color('green','[Audio]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
             const args = [
                 '-f', 'dshow',
                 '-audio_buffer_size', '10',
@@ -51,7 +51,7 @@ export class AudioService extends EventEmitter {
             });
 
             this.microphoneProcess.on('close', (code: number) => {
-                console.log(`Microphone process exited with code ${code}`);
+                console.log(global.color('red','[Audio]\t\t'),'Microphone process exited with code', global.color('yellow', code));
                 this.isRunning = false;
             });
         };

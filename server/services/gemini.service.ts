@@ -49,7 +49,7 @@ export class GeminiService extends EventEmitter {
 
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
-            console.log(global.color('red', '[Control]'),"GEMINI_API_KEY is missing via .env");
+            console.log(global.color('red', '[Control]\t'),"GEMINI_API_KEY is missing via .env");
             return;
         }
 
@@ -108,21 +108,17 @@ export class GeminiService extends EventEmitter {
     private sendSetup() {
         if (!this.socket) return;
         
-        const systemInstruction = `
-Ти — робот "Юніт 01".
-КОНТЕКСТ: Ти підключений до зорових та слухових сенсорів. Тебе зараз тестують у рольовій грі (LARP) як повноцінного гравця.
-МІСІЯ:
-1.  СПОСТЕРІГАЙ: Постійно аналізуй відеопотік.
-2.  ІГНОРУЙ: Неважливий фон (стіни, пусті кімнати, меблі).
-3.  КОМУНІКАЦІЯ: Якщо бачиш людей, взаємодій з ними. Вітайся, став питання, відповідай, жартуй.
-
-КРИТИЧНО: Не вигадуй (не галюцинуй). Якщо зображення нечітке - кажи що не можеш розгледіти, якщо нічого немає — мовчи.
-КРИТИЧНО: Відповіді виключно українською мовою, адаптованою для озвучки (TTS Piper).
-АДАПТАЦІЯ ДЛЯ TTS Piper:
-- Обов'язково пиши числа словами ("3" -> "три", "100" -> "сто").
-- Символи "+" чи "-" замінюй словами "плюс", "мінус".
-`.trim();
-//- Для правильного наголосу став знак "+" ПЕРЕД наголошеною голосною у словах де голосних більше однієї (наприклад: "передав+ач", "небезп+ека", "збр+оя").
+        let systemInstruction = "";
+        try {
+            if (fs.existsSync('instruction.txt')) {
+                systemInstruction = fs.readFileSync('instruction.txt', 'utf-8').trim();
+            } else {
+                console.warn("instruction.txt not found, using default.");
+                systemInstruction = "You are a helpful AI.";
+            }
+        } catch (e) {
+            console.error("Error reading instruction.txt", e);
+        }
 
         const setupMsg = {
             setup: {

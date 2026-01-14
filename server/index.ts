@@ -24,9 +24,41 @@ const wss = new Server({ server });
 app.use(cors());
 app.use(express.json());
 
+import fs from 'fs';
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
+
+// --- API ---
+app.get('/instruction', (req, res) => {
+    try {
+        if (fs.existsSync('instruction.txt')) {
+            const data = fs.readFileSync('instruction.txt', 'utf-8');
+            res.send(data);
+        } else {
+            res.send("Instruction file not found.");
+        }
+    } catch(e) {
+        res.status(500).send(e);
+    }
+});
+
+app.post('/instruction', (req, res) => {
+    try {
+        const text = req.body.text;
+        if (typeof text !== 'string') {
+             res.status(400).send("Invalid input");
+             return;
+        }
+        fs.writeFileSync('instruction.txt', text, 'utf-8');
+        console.log(global.color('green','[System]\t'),`instruction updated via web interface`);
+        res.send("Saved.");
+    } catch(e:any) {
+        res.status(500).send(e.toString());
+    }
+});
+
 
 // --- GLOBAL STATE ---
 let isGeminiActive = false;
@@ -37,13 +69,12 @@ const audioService = AudioService.getInstance();
 const geminiService = GeminiService.getInstance();
 const ttsService = TTSService.getInstance();
 
-console.log("Starting Capture Services...");
 videoService.startVideoCapture();
 audioService.startAudioCapture();
 
 // Wire Gemini text response to TTS
 geminiService.on('text', (text: string) => {
-    console.log(`[System] Gemini said: "${text}". Queuing TTS...`);
+    console.log(global.color('cyan','[System]\t'),`Gemini said: "${text}". Queuing TTS...`);
     ttsService.speak(text);
 });
 
@@ -52,7 +83,7 @@ geminiService.on('text', (text: string) => {
 let videoFrameCount = 0;
 videoService.on('frame', () => {
     videoFrameCount++;
-    if (videoFrameCount % 100 === 0) console.log(`[System] Processed ${videoFrameCount} video frames`);
+    if (videoFrameCount % 100 === 0) console.log(global.color('green','[System]\t'),`Processed ${videoFrameCount} video frames`);
 });
 
 // --- GLOBAL FORWARDING LOGIC ---
@@ -76,7 +107,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
     // 1. VIDEO MONITOR
     if (pathname === '/monitor/video') {
-       console.log('Client connected: Video Monitor');
+       console.log(global.color('blue','[Client]\t'), 'Video Monitor');
        
        const onFrame = (buffer: Buffer) => {
            if (ws.readyState === WebSocket.OPEN) {
@@ -87,14 +118,14 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
        ws.on('close', () => {
            videoService.off('frame', onFrame);
-           console.log('Video Monitor disconnected');
+           console.log(global.color('yellow','[Client]\t'), 'Video Monitor disconnected');
        });
        return;
     }
     
     // 2. AUDIO MONITOR
     if (pathname === '/monitor/audio') {
-        console.log('Client connected: Audio Monitor');
+        console.log(global.color('blue','[Client]\t'), 'Audio Monitor');
         
     const onAudio = (buffer: Buffer) => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -105,14 +136,14 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
     ws.on('close', () => {
         audioService.off('audio', onAudio);
-        console.log('Audio Monitor disconnected');
+        console.log(global.color('yellow','[Client]\t'),'Audio Monitor disconnected');
     });
     return;
 }
 
 // 3. TTS MONITOR (Output Voice)
 if (pathname === '/monitor/tts') {
-    console.log('Client connected: TTS Monitor');
+    console.log(global.color('blue','[Client]\t'), 'TTS Monitor');
 
     const onTTS = (buffer: Buffer) => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -123,14 +154,14 @@ if (pathname === '/monitor/tts') {
 
     ws.on('close', () => {
         ttsService.off('audio', onTTS);
-        console.log('TTS Monitor disconnected');
+        console.log(global.color('yellow','[Client]\t'),'TTS Monitor disconnected');
     });
     return;
 }
 
     // 3. SYSTEM CONTROL (Gemini)
     if (pathname === '/control') {
-        console.log('Client connected: Control');
+        console.log(global.color('blue','[Client]\t'), 'Control');
 
         // Forward Gemini text responses to this client
         const onText = (text: string) => {
@@ -147,12 +178,12 @@ if (pathname === '/monitor/tts') {
                 
                 if (msg.type === 'gemini_control') {
                     if (msg.enabled) {
-                        console.log(global.color('green', '[Control]'),"Gemini ENABLED");
+                        console.log(global.color('green', '[Control]\t'),"Gemini ENABLED");
                         isGeminiActive = true;
                         geminiService.connect();
                         ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Started' }));
                     } else {
-                        console.log(global.color('yellow', '[Control]'),"Gemini DISABLED");
+                        console.log(global.color('yellow', '[Control]\t'),"Gemini DISABLED");
                         isGeminiActive = false;
                         geminiService.disconnect();
                         ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Ended' }));
@@ -165,7 +196,7 @@ if (pathname === '/monitor/tts') {
 
         ws.on('close', () => {
             geminiService.off('text', onText);
-            console.log(global.color('red', '[Control]'),"Control disconnected");
+            console.log(global.color('yellow', '[Control]\t'),"Control disconnected");
             // Optional: Auto-disable Gemini if control is lost?
             // isGeminiActive = false; 
         });
@@ -175,5 +206,5 @@ if (pathname === '/monitor/tts') {
 
 const PORT = settings.PORT || 5000;
 server.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
 });

@@ -47,11 +47,11 @@ export class VideoService extends EventEmitter {
         
         if (this.isRunning) return;
         this.isRunning = true;
-        console.log("Starting Video Capture Service...");
+        //console.log("Starting Video Capture Service...");
 
         // Helper to start the actual capture process
         const startProcess = (deviceName: string) => {
-            console.log(`[Video] Connecting to device: "${deviceName}"`);
+            console.log(global.color('green','[Video]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
             const args = [
                 '-f', 'dshow',
                 '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
@@ -75,7 +75,7 @@ export class VideoService extends EventEmitter {
             });
 
             this.ffmpegProcess.on('exit', (code: number) => {
-                console.log(`Video FFmpeg exited with code ${code}`);
+                console.log(global.color('red','[Video]\t\t'),'Video FFmpeg exited with code', global.color('yellow', code));
                 this.isRunning = false;
             });
         };
@@ -85,7 +85,7 @@ export class VideoService extends EventEmitter {
             const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
             let stderr = '';
 
-            this.showListDevices(listProc);
+            //this.showListDevices(listProc);
 
             listProc.on('close', () => {
                 const lines = stderr.split('\n');
@@ -111,7 +111,7 @@ export class VideoService extends EventEmitter {
              // Direct name usage
              // Still run list for logging purposes
              const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
-             this.showListDevices(listProc);
+             //this.showListDevices(listProc);
              
              startProcess(settings.VIDEO_DEVICE);
         }
