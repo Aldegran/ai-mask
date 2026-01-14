@@ -1,3 +1,5 @@
+import GlobalThis from '../global';
+declare const global: GlobalThis;
 import { spawn } from 'child_process';
 import EventEmitter from 'events';
 import settings from '../config/index';
@@ -25,33 +27,68 @@ export class AudioService extends EventEmitter {
         console.log("Starting Audio Capture Service...");
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
-        // 16kHz Mono Float32 (compatible with Web Audio API & Gemini)
-        this.microphoneProcess = spawn(ffmpegPath, [
-            '-f', 'dshow',
-            '-audio_buffer_size', '10',
-            '-i', settings.AUDIO_DEVICE,
-            '-ar', '16000',
-            '-ac', '1',
-            '-f', 's16le', // PCM 16-bit for Gemini compatibility, we can convert to float for web if needed or web can handle int16? 
-                           // Gemini expects PCM 16-bit usually. Web Audio API expects Float32 ideally, but we can iterate.
-                           // User previous working code was f32le for web. Let's stick to s16le for standard compatibility and convert if needed.
-                           // Actually, let's stick to what's easiest. Gemini likes PCM 16.
-            'pipe:1'
-        ]);
+        // Helper to start process
+        const startProcess = (deviceName: string) => {
+            console.log(`[Audio] Connecting to device: "${deviceName}"`);
+            const args = [
+                '-f', 'dshow',
+                '-audio_buffer_size', '10',
+                '-i', `audio=${deviceName}`,
+                '-ar', '16000',
+                '-ac', '1',
+                '-f', 's16le',
+                'pipe:1'
+            ];
 
-        this.microphoneProcess.stdout.on('data', (chunk: Buffer) => {
-            // Broadcast raw PCM chunk
-            this.emit('audio', chunk);
-        });
+            this.microphoneProcess = spawn(ffmpegPath, args);
 
-        this.microphoneProcess.stderr.on('data', (data: any) => {
-            // console.error(`Microphone stderr: ${data}`);
-        });
+            this.microphoneProcess.stdout.on('data', (chunk: Buffer) => {
+                this.emit('audio', chunk);
+            });
 
-        this.microphoneProcess.on('close', (code: number) => {
-            console.log(`Microphone process exited with code ${code}`);
-            this.isRunning = false;
-        });
+            this.microphoneProcess.stderr.on('data', (data: any) => {
+                // console.error(`Microphone stderr: ${data}`);
+            });
+
+            this.microphoneProcess.on('close', (code: number) => {
+                console.log(`Microphone process exited with code ${code}`);
+                this.isRunning = false;
+            });
+        };
+
+        if (/^\d+$/.test(settings.AUDIO_DEVICE)) {
+           // Resolve index to name
+           const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+           let stderr = '';
+           
+           listProc.stderr.on('data', (data) => {
+               stderr += data.toString();
+           });
+
+           listProc.on('close', () => {
+               const lines = stderr.split('\n');
+               const audioDevices: string[] = [];
+               const regex = /"([^"]+)"/;
+               
+               lines.forEach(line => {
+                   if (line.includes('(audio)') && regex.test(line)) {
+                       const match = line.match(regex);
+                       if (match) audioDevices.push(match[1]);
+                   }
+               });
+
+               const index = parseInt(settings.AUDIO_DEVICE);
+               if (audioDevices[index]) {
+                   startProcess(audioDevices[index]);
+               } else {
+                   console.error(`[Audio] Device index ${index} out of range. Found ${audioDevices.length} audio devices.`);
+                   this.isRunning = false;
+               }
+           });
+        } else {
+            // Use name directly
+            startProcess(settings.AUDIO_DEVICE);
+        }
     }
 
     public stopMicrophone() {

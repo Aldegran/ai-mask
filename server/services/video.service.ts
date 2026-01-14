@@ -1,4 +1,6 @@
-import { spawn } from 'child_process';
+import GlobalThis from '../global';
+declare const global: GlobalThis;
+import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import EventEmitter from 'events';
 import settings from '../config/index';
 
@@ -23,39 +25,96 @@ export class VideoService extends EventEmitter {
         return VideoService.instance;
     }
 
+    private showListDevices(listProc: ChildProcessWithoutNullStreams) {
+        let c = 0;
+        listProc.stderr.on('data', (data) => {
+            if(data.toString().indexOf("(video)")>0) {
+                console.log('\t'+c,global.color('yellow', (`${data}`).split('\n')[0].split(']')[1]));
+                c++;
+            }
+        });
+        let b = 0;
+        listProc.stderr.on('data', (data) => {
+            if(data.toString().indexOf("(audio)")>0) {
+                console.log('\t'+b,global.color('blue', (`${data}`).split('\n')[0].split(']')[1]));
+                b++;
+            }
+        });
+    }
+
     public startVideoCapture() {
+        const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
+        
         if (this.isRunning) return;
         this.isRunning = true;
-
-        const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
         console.log("Starting Video Capture Service...");
 
-        // Capture at High FPS (hardware native) to avoid buffer lag
-        const args = [
-            '-f', 'dshow',
-            '-rtbufsize', '100M',
-            '-i', settings.VIDEO_DEVICE,
-            '-r', settings.CAMERA_FPS.toString(),
-            '-c:v', 'mjpeg',
-            '-q:v', '10',
-            '-f', 'image2pipe',
-            'pipe:1'
-        ];
+        // Helper to start the actual capture process
+        const startProcess = (deviceName: string) => {
+            console.log(`[Video] Connecting to device: "${deviceName}"`);
+            const args = [
+                '-f', 'dshow',
+                '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
+                '-rtbufsize', '100M',
+                '-i', `video=${deviceName}`,
+                '-r', settings.CAMERA_FPS.toString(),
+                '-c:v', 'mjpeg',
+                '-q:v', '10',
+                '-f', 'image2pipe',
+                'pipe:1'
+            ];
 
-        this.ffmpegProcess = spawn(ffmpegPath, args);
+            this.ffmpegProcess = spawn(ffmpegPath, args);
 
-        this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
-            this.handleData(chunk);
-        });
+            this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
+                this.handleData(chunk);
+            });
 
-        this.ffmpegProcess.stderr.on('data', (data: Buffer) => {
-           // console.error(`FFmpeg stderr: ${data}`); 
-        });
+            this.ffmpegProcess.stderr.on('data', (data: Buffer) => {
+                 // console.error(`FFmpeg stderr: ${data}`); 
+            });
 
-        this.ffmpegProcess.on('exit', (code: number) => {
-            console.log(`Video FFmpeg exited with code ${code}`);
-            this.isRunning = false;
-        });
+            this.ffmpegProcess.on('exit', (code: number) => {
+                console.log(`Video FFmpeg exited with code ${code}`);
+                this.isRunning = false;
+            });
+        };
+
+        // If numeric index is provided, resolve it to a name first
+        if (/^\d+$/.test(settings.VIDEO_DEVICE)) {
+            const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+            let stderr = '';
+
+            this.showListDevices(listProc);
+
+            listProc.on('close', () => {
+                const lines = stderr.split('\n');
+                const videoDevices: string[] = [];
+                const regex = /"([^"]+)"/;
+                
+                lines.forEach(line => {
+                    if (line.includes('(video)') && regex.test(line)) {
+                        const match = line.match(regex);
+                        if (match) videoDevices.push(match[1]);
+                    }
+                });
+
+                const index = parseInt(settings.VIDEO_DEVICE);
+                if (videoDevices[index]) {
+                    startProcess(videoDevices[index]);
+                } else {
+                    console.error(`[Video] Device index ${index} out of range. Found ${videoDevices.length} video devices.`);
+                    this.isRunning = false;
+                }
+            });
+        } else {
+             // Direct name usage
+             // Still run list for logging purposes
+             const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+             this.showListDevices(listProc);
+             
+             startProcess(settings.VIDEO_DEVICE);
+        }
     }
 
     private handleData(chunk: Buffer) {
