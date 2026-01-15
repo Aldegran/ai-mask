@@ -144,3 +144,8 @@ server/tools/piper/uk_UA-model.onnx
 server/tools/piper/uk_UA-model.onnx.json
 server/tools/piper/uk_UA-ukrainian_tts-medium.onnx
 server/tools/piper/uk_UA-ukrainian_tts-medium.onnx.json
+server/tools/piper/espeak-ng.dll
+server/tools/piper/onnxruntime.dll
+server/tools/piper/onnxruntime_providers_shared.dll
+server/tools/piper/piper.exe
+server/tools/piper/piper_phonemize.dll

@@ -2,7 +2,7 @@
   "initial_context": {
     "previous_context": "This is a simulated memory context for the AI Mask application.",
     "user_preferences": {
-      "language": "en",
+      "language": "uk",
       "volume": 75,
       "video_quality": "640x480"
     },

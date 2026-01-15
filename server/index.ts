@@ -172,6 +172,13 @@ if (pathname === '/monitor/tts') {
         };
         geminiService.on('text', onText);
 
+        const onEmotion = (emotion: string) => {
+             if (ws.readyState === WebSocket.OPEN) {
+                 ws.send(JSON.stringify({ type: 'gemini_emotion', emotion }));
+             }
+        };
+        geminiService.on('emotion', onEmotion);
+
         ws.on('message', (data) => {
             try {
                 const msg = JSON.parse(data.toString());
@@ -189,6 +196,15 @@ if (pathname === '/monitor/tts') {
                         ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Ended' }));
                     }
                 }
+
+                if (msg.type === 'gemini_chat') {
+                    if (isGeminiActive) {
+                        geminiService.sendTextMessage(msg.text);
+                    } else {
+                        // Optionally auto-enable or warn
+                        ws.send(JSON.stringify({ type: 'log', text: 'Error: Enable Gemini first' }));
+                    }
+                }
             } catch (err) {
                 console.error("Control msg error:", err);
             }
@@ -196,6 +212,7 @@ if (pathname === '/monitor/tts') {
 
         ws.on('close', () => {
             geminiService.off('text', onText);
+            geminiService.off('emotion', onEmotion);
             console.log(global.color('yellow', '[Control]\t'),"Control disconnected");
             // Optional: Auto-disable Gemini if control is lost?
             // isGeminiActive = false; 

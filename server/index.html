@@ -10,14 +10,20 @@
                 <textarea id="instructionArea" style="flex: 1; width: 100%; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 15px; font-family: monospace; font-size: 14px; resize: none; border-radius: 5px;"></textarea>
                 
                 <button id="saveInstrBtn" style="padding: 15px; cursor: pointer; background: #222; color: #888; border: 1px solid #444; border-radius: 5px; font-weight: bold; transition: 0.2s;">SAVE INSTRUCTION TO SERVER</button>
+            
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <textarea id="chatInput" placeholder="Type a message to Gemini..." style="flex: 1; min-height: 60px; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 10px; resize: none; border-radius: 5px; font-family: monospace;"></textarea>
+                    <button id="sendChatBtn" style="padding: 0 20px; cursor: pointer; background: #004400; color: #fff; border: none; border-radius: 4px; font-weight: bold;">SEND</button>
+                </div>
             </div>
 
             <!-- RIGHT COLUMN: Video & Controls -->
             <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 20px; height: 100%; overflow-y: auto;">
                 
                 <!-- Frame border controlled by JS via class/style -->
-                <div id="videoContainer" style="border: 5px solid #444; padding: 2px;">
-                    <img id="videoStream" style="max-width: 100%; min-width: 640px; min-height: 480px; background: #222;" />
+                <div id="videoContainer" style="position: relative; border: 5px solid #444; padding: 2px;">
+                    <img id="videoStream" style="width: 320px; min-height: 240px; background: #222;" />
+                    <div id="emotionDisplay" style="position: absolute; bottom: 10px; right: 10px; font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 5px #000, 0 0 10px #f00;"></div>
                 </div>
                 
                 <div style="display: flex; gap: 20px; align-items: center; background: #111; padding: 15px; border-radius: 10px; border: 1px solid #333;">
@@ -92,6 +98,8 @@
             }
 
             // --- GEMINI CONTROL ---
+            const sendChatBtn = document.getElementById('sendChatBtn');
+
             function toggleGemini(enabled) {
                 if (!geminiControlSocket || geminiControlSocket.readyState !== WebSocket.OPEN) return;
                 
@@ -113,6 +121,24 @@
                 toggleGemini(e.target.checked);
             });
 
+            // --- CHAT SEND ---
+            sendChatBtn.onclick = () => {
+                const text = document.getElementById('chatInput').value;
+                if(!text) return;
+                
+                if (geminiControlSocket && geminiControlSocket.readyState === WebSocket.OPEN) {
+                     log("User: " + text);
+                     geminiControlSocket.send(JSON.stringify({
+                         type: 'gemini_chat',
+                         text: text
+                     }));
+                     document.getElementById('chatInput').value = '';
+                } else {
+                    log("Error: Control socket not connected. Start monitor first.");
+                }
+            };
+            // -----------------
+
             // --- MONITOR SETUP ---
             function setupControlSocket() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -123,6 +149,26 @@
                     const msg = JSON.parse(event.data);
                     if (msg.type === 'gemini_response') {
                         log("AI: " + msg.text);
+                    }
+                    if (msg.type === 'gemini_emotion') {
+                        log("EMOTION: " + msg.emotion);
+                        const emoDiv = document.getElementById('emotionDisplay');
+                        const e = msg.emotion.toLowerCase();
+                        let icon = '😐';
+                        let color = '#fff';
+                        
+                        if (e.includes('joy') || e.includes('happ')) { icon = '😊'; color = '#0f0'; }
+                        else if (e.includes('anger') || e.includes('angry')) { icon = '😡'; color = '#f00'; }
+                        else if (e.includes('sad')) { icon = '😢'; color = '#00f'; }
+                        else if (e.includes('surprise')) { icon = '😲'; color = '#ff0'; }
+                        else if (e.includes('fear')) { icon = '😱'; color = '#f0f'; }
+                        else if (e.includes('process')) { icon = '🔄'; color = '#aaa'; }
+                        
+                        emoDiv.innerText = icon + " " + msg.emotion.toUpperCase();
+                        emoDiv.style.color = color;
+                        
+                        // Clear after 5 seconds
+                        setTimeout(() => { emoDiv.innerText = ''; }, 5000);
                     }
                     if (msg.type === 'log') {
                         // System logs from server
