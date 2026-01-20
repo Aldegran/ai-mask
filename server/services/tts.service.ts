@@ -9,7 +9,7 @@ const voiceSettings = {
     noise_scale: 0.01,//0.667
     noise_w: 0.1,//0.8
     sentence_silence : 0.2,
-    speaker: 2,
+    speaker: 1,
     model: 'uk_UA-ukrainian_tts-medium',//'uk_UA-model'
 };
 
@@ -26,6 +26,69 @@ export class TTSService extends EventEmitter {
             TTSService.instance = new TTSService();
         }
         return TTSService.instance;
+    }
+
+    /**
+     * Generates a WAV file from the given text at a specific path.
+     */
+    public async genWav(text: string, filename: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            if (!text || text.trim().length === 0) {
+                return resolve(false);
+            }
+
+            const piperDir = path.resolve(__dirname, '../tools/piper');
+            const piperExe = path.join(piperDir, 'piper.exe');
+            const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
+            
+            // Ensure filename is absolute or relative to piperDir if desired, 
+            // but usually caller provides a path. We'll use it directly if absolute,
+            // or resolve relative to CWD if not.
+            // For safety in this context, let's assume filename is a full path or simple name.
+            const outputWav = path.isAbsolute(filename) ? filename : path.join(process.cwd(), filename);
+
+            if (!fs.existsSync(piperExe)) {
+                console.error(`[TTS] Piper executable not found at ${piperExe}`);
+                return resolve(false);
+            }
+            if (!fs.existsSync(modelPath)) {
+                console.error(`[TTS] Model not found at ${modelPath}`);
+                return resolve(false);
+            }
+
+            try {
+                const piper = spawn(piperExe, [
+                    '--model', modelPath,
+                    '--output_file', outputWav,
+                    '--speaker', voiceSettings.speaker.toString(),
+                    '--length_scale', voiceSettings.length_scale.toString(),
+                    '--noise_scale', voiceSettings.noise_scale.toString(),
+                    '--noise_w', voiceSettings.noise_w.toString(),
+                    '--sentence_silence', voiceSettings.sentence_silence.toString(),
+                ]);
+
+                // Handle process input
+                piper.stdin.write(text);
+                piper.stdin.end();
+
+                piper.on('close', (code) => {
+                    if (code !== 0) {
+                        console.error(`[TTS] Piper process exited with code ${code}`);
+                        return resolve(false);
+                    }
+                    resolve(true);
+                });
+
+                piper.on('error', (err) => {
+                    console.error("[TTS] Process error:", err);
+                    resolve(false);
+                });
+
+            } catch (e) {
+                console.error("[TTS] Exception:", e);
+                resolve(false);
+            }
+        });
     }
 
     /**

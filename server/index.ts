@@ -73,9 +73,19 @@ videoService.startVideoCapture();
 audioService.startAudioCapture();
 
 // Wire Gemini text response to TTS
-geminiService.on('text', (text: string) => {
+geminiService.on('say', (text: string) => {
     console.log(global.color('cyan','[System]\t'),`Gemini said: "${text}". Queuing TTS...`);
-    ttsService.speak(text);
+    //ttsService.speak(text);
+});
+// Wire Gemini text response to TTS
+geminiService.on('whisper', (text: string) => {
+    console.log(global.color('cyan','[System]\t'),`Gemini whisper: "${text}". Queuing TTS...`);
+    ttsService.speak("Бажання. "+text);
+});
+
+geminiService.on('think', (text: string) => {
+    console.log(global.color('blue','[System]\t'),`Gemini think: "${text}"`);
+    // No TTS for thoughts
 });
 
 
@@ -164,13 +174,28 @@ if (pathname === '/monitor/tts') {
         console.log(global.color('blue','[Client]\t'), 'Control');
 
         // Forward Gemini text responses to this client
-        const onText = (text: string) => {
+        const onSay = (text: string) => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'gemini_response', text }));
                 //console.log(global.color('green', '[Gemini response]'), text);
             }
         };
-        geminiService.on('text', onText);
+        geminiService.on('say', onSay);
+        // Forward Gemini text responses to this client
+        const onWhisper = (text: string) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'gemini_whisper', text }));
+                //console.log(global.color('green', '[Gemini whisper]'), text);
+            }
+        };
+        geminiService.on('whisper', onWhisper);
+
+        const onThink = (text: string) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'gemini_think', text }));
+            }
+        };
+        geminiService.on('think', onThink);
 
         const onEmotion = (emotion: string) => {
              if (ws.readyState === WebSocket.OPEN) {
@@ -211,7 +236,8 @@ if (pathname === '/monitor/tts') {
         });
 
         ws.on('close', () => {
-            geminiService.off('text', onText);
+            geminiService.off('say', onSay);
+            geminiService.off('whisper', onWhisper);
             geminiService.off('emotion', onEmotion);
             console.log(global.color('yellow', '[Control]\t'),"Control disconnected");
             // Optional: Auto-disable Gemini if control is lost?
@@ -225,3 +251,6 @@ const PORT = settings.PORT || 5000;
 server.listen(PORT, () => {
     console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
 });
+
+
+//TTSService.getInstance().genWav("пінг", "ping.wav");

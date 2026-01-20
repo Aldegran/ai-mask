@@ -67,7 +67,10 @@ export class GeminiService extends EventEmitter {
             
             // Initial kickstart message
             setTimeout(() => {
-                this.sendTextMessage("Опиши свій настрій зараз");
+                //this.sendTextMessage("Опиши свій настрій зараз");
+                this.scanInterval = setInterval(() => {
+                    this.sendPing();
+                },5000);
             }, 500);
         });
 
@@ -226,15 +229,69 @@ export class GeminiService extends EventEmitter {
         this.socket.send(JSON.stringify(msg));
     }
 
+    /*public sendHeartbeat() {
+        if (!this.isConnected || !this.socket) return;
+        const msg = { heartbeat: {} };
+        this.socket.send(JSON.stringify(msg));
+    }*/
+    
+    public sendPing() {
+        if (!this.isConnected || !this.socket) return;
+        
+        // Load ping.wav to trigger VAD (Voice Activity Detection)
+        // This is more reliable than white noise for grabbing attention.
+        let pingBuffer: Buffer | null = null;
+        try {
+            // Using synchronous read is fine for a 10s interval
+            if (fs.existsSync('ping.wav')) {
+                 pingBuffer = fs.readFileSync('ping.wav');
+            } else {
+                 console.log(global.color('yellow', '[System Ping]'), "ping.wav not found, skipping audio trigger.");
+            }
+        } catch (e) {
+            console.error("Error reading ping.wav", e);
+        }
+
+        if (pingBuffer) {
+            const audioMsg = {
+                realtime_input: {
+                    media_chunks: [
+                        {
+                            mime_type: "audio/pcm",
+                            data: pingBuffer.toString('base64')
+                        }
+                    ]
+                }
+            };
+            this.socket.send(JSON.stringify(audioMsg));
+        }
+
+        /*const msg = {
+            client_content: {
+                turns: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: "[SYSTEM: SCAN_VIDEO]" }
+                        ]
+                    }
+                ],
+                turn_complete: true
+            }
+        };
+        console.log(global.color('yellow', '[System Ping]'), "Sending audio heartbeat (ping.wav) + scan command");
+        this.socket.send(JSON.stringify(msg));*/
+    }
+
     private handleMessage(data: WebSocket.Data) {
         try {
             const str = data.toString();
             // Log everything for debug
-            if (str.length > 500) {
+            /*if (str.length > 500) {
                  console.log(global.color('gray', `[Gemini Raw]: ${str.substring(0, 200)} ... ${str.substring(str.length - 100)}`));
             } else {
                  console.log(global.color('gray', `[Gemini Raw]: ${str}`));
-            }
+            }*/
 
             const msg = JSON.parse(str);
 
@@ -272,7 +329,24 @@ export class GeminiService extends EventEmitter {
             const content = match[1].trim();
             if (content) {
                 console.log(global.color('green', '[PARSED SAY]:'), content);
-                this.emit('text', content);
+                this.emit('say', content);
+            }
+        }
+        const whisperRegex = /\[WHISPER:\s*(.*?)\]/g;
+        while ((match = whisperRegex.exec(text)) !== null) {
+            const content = match[1].trim();
+            if (content) {
+                console.log(global.color('green', '[PARSED WHISPER]:'), content);
+                this.emit('whisper', content);
+            }
+        }
+
+        const thinkRegex = /\[THINK:\s*(.*?)\]/g;
+        while ((match = thinkRegex.exec(text)) !== null) {
+            const content = match[1].trim();
+            if (content) {
+                console.log(global.color('blue', '[PARSED THINK]:'), content);
+                this.emit('think', content);
             }
         }
 
@@ -284,6 +358,10 @@ export class GeminiService extends EventEmitter {
                  console.log(global.color('magenta', '[PARSED EMOTION]:'), emotion);
                  this.emit('emotion', emotion);
              }
+        }
+
+        if(text.includes("[PONG]")) {
+            console.log(global.color('yellow', '[PONG]'));
         }
     }
 }
