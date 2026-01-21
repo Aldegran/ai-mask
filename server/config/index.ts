@@ -11,7 +11,10 @@ const settings = {
     FPS: 2, // Target FPS for processing/sending
     CAMERA_FPS: 30, // Hardware capture FPS
     CAMERA_WIDTH: 640,
-    CAMERA_HEIGHT: 480
+    CAMERA_HEIGHT: 480,
+    TTS_FOR: "SAY",
+    ENABLE_CLIENT_MIC_MONITORING: false, 
+    DELIM: "\n\nНижче буде твоя історія попередніх взаємодій з оточуючим світом. Використовуй цю інформацію, щоб надати більш контекстуальні відповіді.\n\n",
 };
 
 export default settings; 

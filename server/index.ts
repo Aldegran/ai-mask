@@ -14,6 +14,7 @@ import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
 import { TTSService } from './services/tts.service';
 import settings from "./config/index";
+import { getCommandConfig, setGeminiInstance, serviceStart, serviceStop } from "./config/commands";
 
 dotenv.config();
 
@@ -44,6 +45,19 @@ app.get('/instruction', (req, res) => {
     }
 });
 
+app.get('/settings', (req, res) => {
+    const { 
+        FPS,
+        CAMERA_FPS,
+        CAMERA_WIDTH,
+        CAMERA_HEIGHT,
+        TTS_FOR,
+        ENABLE_CLIENT_MIC_MONITORING,
+    } = settings;
+
+    res.json({ FPS,CAMERA_FPS,CAMERA_WIDTH,CAMERA_HEIGHT,TTS_FOR, ENABLE_CLIENT_MIC_MONITORING });
+});
+
 app.post('/instruction', (req, res) => {
     try {
         const text = req.body.text;
@@ -67,25 +81,22 @@ let isGeminiActive = false;
 const videoService = VideoService.getInstance();
 const audioService = AudioService.getInstance();
 const geminiService = GeminiService.getInstance();
+setGeminiInstance(geminiService);
 const ttsService = TTSService.getInstance();
 
 videoService.startVideoCapture();
 audioService.startAudioCapture();
 
-// Wire Gemini text response to TTS
-geminiService.on('say', (text: string) => {
-    console.log(global.color('cyan','[System]\t'),`Gemini said: "${text}". Queuing TTS...`);
-    //ttsService.speak(text);
-});
-// Wire Gemini text response to TTS
-geminiService.on('whisper', (text: string) => {
-    console.log(global.color('cyan','[System]\t'),`Gemini whisper: "${text}". Queuing TTS...`);
-    ttsService.speak("Бажання. "+text);
-});
-
-geminiService.on('think', (text: string) => {
-    console.log(global.color('blue','[System]\t'),`Gemini think: "${text}"`);
-    // No TTS for thoughts
+// Wire Gemini text response to Generic Handler
+geminiService.on('command', (cmd: { type: string, content: string }) => {
+    const config = getCommandConfig(cmd.type);
+    if (config.work) {
+        config.work(cmd.content);
+    }
+    if (config.shouldSpeak()) {
+        const textToSpeak = config.transformText ? config.transformText(cmd.content) : cmd.content;
+        ttsService.speak(textToSpeak);
+    }
 });
 
 
@@ -135,6 +146,11 @@ wss.on('connection', (ws: WebSocket, req: any) => {
     
     // 2. AUDIO MONITOR
     if (pathname === '/monitor/audio') {
+        if (!settings.ENABLE_CLIENT_MIC_MONITORING) {
+            ws.close();
+            return;
+        }
+
         console.log(global.color('blue','[Client]\t'), 'Audio Monitor');
         
     const onAudio = (buffer: Buffer) => {
@@ -173,36 +189,19 @@ if (pathname === '/monitor/tts') {
     if (pathname === '/control') {
         console.log(global.color('blue','[Client]\t'), 'Control');
 
-        // Forward Gemini text responses to this client
-        const onSay = (text: string) => {
+        // Unified Command Forwarding
+        const onCommand = (cmd: { type: string, content: string }) => {
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'gemini_response', text }));
-                //console.log(global.color('green', '[Gemini response]'), text);
+                // Forward as generic 'gemini_command'
+                //const config = getCommandConfig(cmd.type);
+                ws.send(JSON.stringify({ 
+                    type: 'gemini_command', 
+                    command: cmd.type, 
+                    text: cmd.content 
+                }));
             }
         };
-        geminiService.on('say', onSay);
-        // Forward Gemini text responses to this client
-        const onWhisper = (text: string) => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'gemini_whisper', text }));
-                //console.log(global.color('green', '[Gemini whisper]'), text);
-            }
-        };
-        geminiService.on('whisper', onWhisper);
-
-        const onThink = (text: string) => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'gemini_think', text }));
-            }
-        };
-        geminiService.on('think', onThink);
-
-        const onEmotion = (emotion: string) => {
-             if (ws.readyState === WebSocket.OPEN) {
-                 ws.send(JSON.stringify({ type: 'gemini_emotion', emotion }));
-             }
-        };
-        geminiService.on('emotion', onEmotion);
+        geminiService.on('command', onCommand);
 
         ws.on('message', (data) => {
             try {
@@ -236,9 +235,7 @@ if (pathname === '/monitor/tts') {
         });
 
         ws.on('close', () => {
-            geminiService.off('say', onSay);
-            geminiService.off('whisper', onWhisper);
-            geminiService.off('emotion', onEmotion);
+            geminiService.off('command', onCommand);
             console.log(global.color('yellow', '[Control]\t'),"Control disconnected");
             // Optional: Auto-disable Gemini if control is lost?
             // isGeminiActive = false; 
@@ -252,5 +249,6 @@ server.listen(PORT, () => {
     console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
 });
 
+serviceStart('begin');
 
 //TTSService.getInstance().genWav("пінг", "ping.wav");

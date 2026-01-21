@@ -1,3 +1,5 @@
+import GlobalThis from '../global';
+declare const global: GlobalThis;
 import { spawn, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -48,11 +50,11 @@ export class TTSService extends EventEmitter {
             const outputWav = path.isAbsolute(filename) ? filename : path.join(process.cwd(), filename);
 
             if (!fs.existsSync(piperExe)) {
-                console.error(`[TTS] Piper executable not found at ${piperExe}`);
+                console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);
                 return resolve(false);
             }
             if (!fs.existsSync(modelPath)) {
-                console.error(`[TTS] Model not found at ${modelPath}`);
+                console.log(global.color('red',"[TTS]\t"),`Model not found at ${modelPath}`);
                 return resolve(false);
             }
 
@@ -73,19 +75,19 @@ export class TTSService extends EventEmitter {
 
                 piper.on('close', (code) => {
                     if (code !== 0) {
-                        console.error(`[TTS] Piper process exited with code ${code}`);
+                        console.log(global.color('red',"[TTS]\t"),`Piper process exited with code ${code}`);
                         return resolve(false);
                     }
                     resolve(true);
                 });
 
                 piper.on('error', (err) => {
-                    console.error("[TTS] Process error:", err);
+                    console.log(global.color('red',"[TTS]\t"),"Process error:", err);
                     resolve(false);
                 });
 
             } catch (e) {
-                console.error("[TTS] Exception:", e);
+                console.log(global.color('red',"[TTS]\t"),"Exception:", e);
                 resolve(false);
             }
         });
@@ -100,7 +102,7 @@ export class TTSService extends EventEmitter {
                 return resolve(null);
             }
 
-            console.log(`[TTS] Generating audio for: "${text}"`);
+            //console.log(global.color('cyan',"[TTS]\t"),`Generating audio for: "${text}"`);
             this.isGenerating = true;
 
             const piperDir = path.resolve(__dirname, '../tools/piper'); 
@@ -109,12 +111,12 @@ export class TTSService extends EventEmitter {
             const outputWav = path.join(piperDir, 'output.wav');
 
             if (!fs.existsSync(piperExe)) {
-                console.error(`[TTS] Piper executable not found at ${piperExe}`);
+                console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);
                 this.isGenerating = false;
                 return resolve(null);
             }
             if (!fs.existsSync(modelPath)) {
-                console.error(`[TTS] Model not found at ${modelPath}`);
+                console.log(global.color('red',"[TTS]\t"),`Model not found at ${modelPath}`);
                 this.isGenerating = false;
                 return resolve(null);
             }
@@ -141,8 +143,8 @@ export class TTSService extends EventEmitter {
                     this.isGenerating = false;
                     
                     if (code !== 0) {
-                        console.error(`[TTS] Piper process exited with code ${code}`);
-                        console.error(stderrLog);
+                        console.log(global.color('red',"[TTS]\t"),`Piper process exited with code ${code}`);
+                        console.log(stderrLog);
                         return resolve(null);
                     }
 
@@ -150,7 +152,7 @@ export class TTSService extends EventEmitter {
                     try {
                         if (fs.existsSync(outputWav)) {
                             const audioBuffer = fs.readFileSync(outputWav);
-                            console.log(`[TTS] Generated ${audioBuffer.length} bytes.`);
+                            //console.log(global.color('cyan',"[TTS]\t"),`Generated ${audioBuffer.length} bytes.`);
                             
                             // Emit the audio for listeners (e.g. WebSocket broadcaster)
                             this.emit('audio', audioBuffer);
@@ -159,29 +161,29 @@ export class TTSService extends EventEmitter {
                             if (process.env.AUDIO_OUTPUT_MODE === 'default' && process.platform === 'win32') {
                                 const psPlay = `(New-Object Media.SoundPlayer "${outputWav}").PlaySync()`;
                                 exec(`powershell -c "${psPlay}"`, (err) => {
-                                    if (err) console.error("[TTS] Local playback error:", err);
+                                    if (err) console.log(global.color('red',"[TTS]\t"),"Local playback error:", err);
                                 });
                             }
                             
                             resolve(audioBuffer);
                         } else {
-                            console.error("[TTS] Output file not found after generation.");
+                            console.log(global.color('red',"[TTS]\t"),"Output file not found after generation.");
                             resolve(null);
                         }
                     } catch (readErr) {
-                        console.error("[TTS] Error reading output file:", readErr);
+                        console.log(global.color('red',"[TTS]\t"),"Error reading output file:", readErr);
                         resolve(null);
                     }
                 });
 
                 piper.on('error', (err) => {
-                    console.error("[TTS] Process error:", err);
+                    console.log(global.color('red',"[TTS]\t"),"Process error:", err);
                     this.isGenerating = false;
                     resolve(null);
                 });
 
             } catch (e) {
-                console.error("[TTS] Exception:", e);
+                console.log(global.color('red',"[TTS]\t"),"Exception:", e);
                 this.isGenerating = false;
                 resolve(null);
             }

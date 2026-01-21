@@ -5,6 +5,10 @@ import { config } from 'dotenv';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 
+import { ProtocolProcessor } from './processor';
+import { getCommandConfig, serviceStart, serviceStop } from '../config/commands';
+import settings from '../config/index';
+
 config();
 
 export class GeminiService extends EventEmitter {
@@ -63,14 +67,10 @@ export class GeminiService extends EventEmitter {
             console.log(global.color('green', "Connected to Gemini"));
             this.isConnected = true;
             this.sendSetup();
-            this.startScanningLoop();
             
-            // Initial kickstart message
             setTimeout(() => {
-                //this.sendTextMessage("Опиши свій настрій зараз");
-                this.scanInterval = setInterval(() => {
-                    this.sendPing();
-                },5000);
+                serviceStart('start');
+                serviceStart('contextUpdater');
             }, 500);
         });
 
@@ -100,17 +100,11 @@ export class GeminiService extends EventEmitter {
         this.isConnected = false;
         this.socket = null;
         this.responseBuffer = "";
+        serviceStop('contextUpdater');
         if (this.scanInterval) {
             clearInterval(this.scanInterval);
             this.scanInterval = null;
         }
-    }
-
-    private startScanningLoop() {
-        if (this.scanInterval) clearInterval(this.scanInterval);
-        // Removed polling loop. We will rely on passive streaming.
-        // We can optionally send "heartbeats" just to keep connection alive if needed,
-        // but for now let's trust the refined model to speak when it sees something.
     }
 
     private sendSetup() {
@@ -125,7 +119,20 @@ export class GeminiService extends EventEmitter {
                 systemInstructionText = "You are a helpful AI.";
             }
         } catch (e) {
-            console.error("Error reading instruction.txt", e);
+            console.log(global.color('red', '[Gemini]\t'),"Error reading instruction.txt", e);
+            return;
+        }
+        let contextText = "";
+        try {
+            if (fs.existsSync('context.txt')) {
+                contextText = fs.readFileSync('context.txt', 'utf-8').trim();
+                if( contextText.length > 0 ){
+                    systemInstructionText += settings.DELIM + contextText;
+                }
+            }
+        } catch (e) {
+            console.log(global.color('red', '[Gemini]\t'),"Error reading context.txt", e);
+            return;
         }
 
         const setupMsg = {
@@ -143,37 +150,9 @@ export class GeminiService extends EventEmitter {
             }
         };
 
-        // console.log("Sending Setup:", JSON.stringify(setupMsg, null, 2));
+        console.log(global.color('green', '[Gemini]\t'),"Sending setup message ", global.color('green', '[OK]'));
         this.socket.send(JSON.stringify(setupMsg));
     }
-
-        /*
-        const systemInstruction = "You are a helpful assistant found in a futuristic mask.";
-        
-        const setupMsg = {
-            setup: {
-                model: "models/gemini-2.0-flash-exp",
-                generationConfig: {
-                    responseModalities: ["AUDIO", "TEXT"],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: {
-                                voiceName: "Puck"
-                            }
-                        }
-                    }
-                },
-                systemInstruction: {
-                    parts: [
-                        { text: systemInstruction } // TODO: Use this.context.prompt if valid
-                    ]
-                }
-            }
-        };
-
-        this.socket.send(JSON.stringify(setupMsg));
-        */
-    //}
 
     public sendVideoFrame(c: Buffer) {
         if (!this.isConnected || !this.socket) return;
@@ -265,22 +244,6 @@ export class GeminiService extends EventEmitter {
             };
             this.socket.send(JSON.stringify(audioMsg));
         }
-
-        /*const msg = {
-            client_content: {
-                turns: [
-                    {
-                        role: "user",
-                        parts: [
-                            { text: "[SYSTEM: SCAN_VIDEO]" }
-                        ]
-                    }
-                ],
-                turn_complete: true
-            }
-        };
-        console.log(global.color('yellow', '[System Ping]'), "Sending audio heartbeat (ping.wav) + scan command");
-        this.socket.send(JSON.stringify(msg));*/
     }
 
     private handleMessage(data: WebSocket.Data) {
@@ -309,8 +272,8 @@ export class GeminiService extends EventEmitter {
                 const finalResponse = this.responseBuffer.trim();
                 // Output raw thought process to console
                 if (finalResponse.length > 0) {
-                     console.log(global.color('cyan', '[Gemini Thought]:'), finalResponse);
-                     this.processTextMarkers(finalResponse);
+                    //console.log(global.color('cyan', '[Gemini Thought]:'), finalResponse);
+                    this.processTextMarkers(finalResponse);
                 }
                 this.responseBuffer = "";
             }
@@ -321,47 +284,27 @@ export class GeminiService extends EventEmitter {
     }
 
     private processTextMarkers(text: string) {
-        // Regex for [SAY: ...]
-        // Supports multiline if needed, but usually on one line. Using 'g' for multiple commands.
-        const sayRegex = /\[SAY:\s*(.*?)\]/g;
-        let match;
-        while ((match = sayRegex.exec(text)) !== null) {
-            const content = match[1].trim();
-            if (content) {
-                console.log(global.color('green', '[PARSED SAY]:'), content);
-                this.emit('say', content);
-            }
-        }
-        const whisperRegex = /\[WHISPER:\s*(.*?)\]/g;
-        while ((match = whisperRegex.exec(text)) !== null) {
-            const content = match[1].trim();
-            if (content) {
-                console.log(global.color('green', '[PARSED WHISPER]:'), content);
-                this.emit('whisper', content);
-            }
+        const commands = ProtocolProcessor.parse(text);
+        
+        if (commands.length === 0) {
+            console.log(global.color('yellow', '[Gemini Raw]:'), text);
+            // Optionally emit a 'THINK' command for raw text?
+            // this.emit('command', { type: 'THINK', content: text });
+            return;
         }
 
-        const thinkRegex = /\[THINK:\s*(.*?)\]/g;
-        while ((match = thinkRegex.exec(text)) !== null) {
-            const content = match[1].trim();
-            if (content) {
-                console.log(global.color('blue', '[PARSED THINK]:'), content);
-                this.emit('think', content);
+        for (const cmd of commands) {
+            const config = getCommandConfig(cmd.type);
+            if(config.unknown){
+                console.log(global.color('yellow','[System]\t'),`Unknown command type from Gemini: "${cmd.type}"`);
+                continue;
             }
-        }
+            const color = config.color as any; // Cast to satisfy color function type if needed, or string
 
-        // Regex for [EMOTION: ...]
-        const emotionRegex = /\[EMOTION:\s*(.*?)\]/g;
-        while ((match = emotionRegex.exec(text)) !== null) {
-             const emotion = match[1].trim();
-             if (emotion) {
-                 console.log(global.color('magenta', '[PARSED EMOTION]:'), emotion);
-                 this.emit('emotion', emotion);
-             }
-        }
+            console.log(global.color(color, `[${cmd.type}]:\t`), cmd.content);
 
-        if(text.includes("[PONG]")) {
-            console.log(global.color('yellow', '[PONG]'));
+            // Emit single unified event
+            this.emit('command', cmd);
         }
     }
 }

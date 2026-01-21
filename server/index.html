@@ -1,32 +1,18 @@
 <!DOCTYPE html>
 <html>
     <body style="background: #000; color: #fff; text-align: center; font-family: monospace;">
-        <h1>Low Latency Preview</h1>
         <div style="display: flex; flex-direction: row; gap: 20px; padding: 20px; height: 90vh; align-items: flex-start;">
             
             <!-- LEFT COLUMN: Instruction -->
-            <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; text-align: left; height: 100%;">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: space-between; text-align: left; height: 100%;">
                 
-                <textarea id="instructionArea" style="flex: 1; width: 100%; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 15px; font-family: monospace; font-size: 14px; resize: none; border-radius: 5px;"></textarea>
+                <!--textarea id="instructionArea" style="flex: 1; width: 100%; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 15px; font-family: monospace; font-size: 14px; resize: none; border-radius: 5px;"></textarea>
                 
-                <button id="saveInstrBtn" style="padding: 15px; cursor: pointer; background: #222; color: #888; border: 1px solid #444; border-radius: 5px; font-weight: bold; transition: 0.2s;">SAVE INSTRUCTION TO SERVER</button>
-            
-                <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <textarea id="chatInput" placeholder="Type a message to Gemini..." style="flex: 1; min-height: 60px; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 10px; resize: none; border-radius: 5px; font-family: monospace;"></textarea>
-                    <button id="sendChatBtn" style="padding: 0 20px; cursor: pointer; background: #004400; color: #fff; border: none; border-radius: 4px; font-weight: bold;">SEND</button>
-                    <button id="sendPingBtn" style="padding: 0 20px; cursor: pointer; background: #fdf902; color: #020202; border: none; border-radius: 4px; font-weight: bold;">PING</button>
-                </div>
-            </div>
-
-            <!-- RIGHT COLUMN: Video & Controls -->
-            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 20px; height: 100%; overflow-y: auto;">
-                
-                <!-- Frame border controlled by JS via class/style -->
-                <div id="videoContainer" style="position: relative; border: 5px solid #444; padding: 2px;">
-                    <img id="videoStream" style="width: 320px; min-height: 240px; background: #222;" />
+                <button id="saveInstrBtn" style="padding: 15px; cursor: pointer; background: #222; color: #888; border: 1px solid #444; border-radius: 5px; font-weight: bold; transition: 0.2s;">SAVE INSTRUCTION TO SERVER</button-->
+                <div id="videoContainer" style="position: relative; border: 5px solid #444; padding: 2px; width: max-content; align-self: center; margin-top: 20px;">
+                    <img id="videoStream" style="width: 640px; min-height: 480px; background: #222;" />
                     <div id="emotionDisplay" style="position: absolute; bottom: 10px; right: 10px; font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 5px #000, 0 0 10px #f00;"></div>
                 </div>
-                
                 <div style="display: flex; gap: 20px; align-items: center; background: #111; padding: 15px; border-radius: 10px; border: 1px solid #333;">
                     <button id="startAudioBtn" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #004400; color: #fff; border: none; border-radius: 4px;">START MONITOR</button>
                     
@@ -35,17 +21,32 @@
                         USE GEMINI AI
                     </label>
 
-                    <label style="display: flex; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
-                        <input type="checkbox" id="muteMicCk" style="width: 20px; height: 20px;">
+                    <label id="muteMicContainer" style="display: none; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="muteMicCk" style="width: 20px; height: 20px;" checked>
                         MUTE MIC ECHO
                     </label>
                 </div>
+            
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <textarea id="chatInput" placeholder="Type a message to Gemini..." style="flex: 1; min-height: 60px; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 10px; resize: none; border-radius: 5px; font-family: monospace;"></textarea>
+                    <button id="sendChatBtn" style="padding: 0 20px; cursor: pointer; background: #004400; color: #fff; border: none; border-radius: 4px; font-weight: bold;">SEND</button>
+                    <button id="sendContextBtn" style="padding: 0 20px; cursor: pointer; background: #fdf902; color: #020202; border: none; border-radius: 4px; font-weight: bold;">CONTEXT</button>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Video & Controls -->
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; overflow-y: auto;">
+                
+                <!-- Frame border controlled by JS via class/style -->
+                
+                
 
                 <div id="status" style="color: #888; font-weight: bold;">System Status: Idle</div>
 
-                <div style="width: 75%; text-align: left; flex: 1; display: flex; flex-direction: column;">
-                    <label style="color: #aaa;">Gemini Response Log:</label>
-                    <textarea id="geminiLog" readonly style="width: 100%; flex: 1; min-height: 150px; background: #000; color: #0f0; border: 1px solid #333; padding: 10px; font-family: monospace; font-size: 14px; margin-top: 5px; border-radius: 5px;"></textarea>
+                <div style="width: 90%; text-align: left; flex: 1; display: flex; flex-direction: column;">
+                    <div style="width: 100%; flex: 1; min-height: 150px; background: #000; border: 1px solid #333; padding: 10px; font-family: monospace; font-size: 14px; margin-top: 5px; border-radius: 5px; overflow-y: auto;">
+                        <ul id="geminiLogList" style="list-style: none; padding: 0; margin: 0;"></ul>
+                    </div>
                 </div>
             </div>
 
@@ -58,12 +59,19 @@
             const statusDiv = document.getElementById('status');
             const videoImg = document.getElementById('videoStream');
             const videoContainer = document.getElementById('videoContainer');
-            const geminiLog = document.getElementById('geminiLog');
+            const geminiLogList = document.getElementById('geminiLogList');
             const instructionArea = document.getElementById('instructionArea');
-            const saveInstrBtn = document.getElementById('saveInstrBtn');
+            const muteMicContainer = document.getElementById('muteMicContainer');
+
+            // --- SETTINGS FETCH ---
+            fetch('/settings').then(r => r.json()).then(s => {
+                if (s.ENABLE_CLIENT_MIC_MONITORING) {
+                    muteMicContainer.style.display = 'flex';
+                }
+            }).catch(e => console.log("Settings fetch error", e));
 
             // --- INSTRUCTION MANAGER ---
-            async function loadInstruction() {
+            /*async function loadInstruction() {
                 try {
                     const res = await fetch('/instruction');
                     const text = await res.text();
@@ -86,7 +94,7 @@
                         alert("Error saving.");
                     }
                 } catch(e) { alert("Error: " + e.message); }
-            };
+            };*/
 
             let audioCtx;
             let videoSocket;
@@ -95,12 +103,26 @@
             let nextTime = 0;
 
             function log(msg) {
-                geminiLog.value = `[${new Date().toLocaleTimeString()}] ${msg}\n` + geminiLog.value;
+                const li = document.createElement('li');
+                li.style.borderBottom = '1px solid #222';
+                li.style.padding = '4px 0';
+                li.style.color = '#ccc'; // default
+                
+                // Content parsing for color
+                if(msg.startsWith("THINK:")) li.style.color = '#0af';     // Blue
+                else if(msg.startsWith("WHISPER:")) li.style.color = '#8f8'; // Light Green
+                else if(msg.startsWith("AI:")) li.style.color = '#0f0'; // Matrix Green
+                else if(msg.startsWith("User:")) li.style.color = '#0ff'; // Cyan
+                else if(msg.indexOf("Error") !== -1) li.style.color = '#f00'; // Red
+                else if(msg.indexOf("Session") !== -1) li.style.color = '#ff0'; // Yellow
+
+                li.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                geminiLogList.prepend(li); // Add to top
             }
 
             // --- GEMINI CONTROL ---
             const sendChatBtn = document.getElementById('sendChatBtn');
-            const sendPingBtn = document.getElementById('sendPingBtn');
+            const sendContextBtn = document.getElementById('sendContextBtn');
 
             function toggleGemini(enabled) {
                 if (!geminiControlSocket || geminiControlSocket.readyState !== WebSocket.OPEN) return;
@@ -139,11 +161,11 @@
                     log("Error: Control socket not connected. Start monitor first.");
                 }
             };
-            sendPingBtn.onclick = () => {
+            sendContextBtn.onclick = () => {
                 if (geminiControlSocket && geminiControlSocket.readyState === WebSocket.OPEN) {
                      geminiControlSocket.send(JSON.stringify({
                          type: 'gemini_chat',
-                         text: "[PING]"
+                         text: "[CONTEXT]"
                      }));
                 } else {
                     log("Error: Control socket not connected. Start monitor first.");
@@ -159,35 +181,34 @@
                 geminiControlSocket.onopen = () => console.log("Control WS Connected");
                 geminiControlSocket.onmessage = (event) => {
                     const msg = JSON.parse(event.data);
-                    if (msg.type === 'gemini_response') {
-                        log("AI: " + msg.text);
+                    
+                    if (msg.type === 'gemini_command') {
+                        const cmd = msg.command; // SAY, THINK, etc.
+                        const text = msg.text;
+
+                        if (cmd === 'EMOTION') {
+                            const emoDiv = document.getElementById('emotionDisplay');
+                            const e = text.toLowerCase();
+                            let icon = '';
+                            let color = '#fff';
+                            
+                            if (e.includes('joy') || e.includes('happ')) { icon = '😊'; color = '#0f0'; }
+                            else if (e.includes('anger') || e.includes('angry')) { icon = '😡'; color = '#f00'; }
+                            else if (e.includes('sad')) { icon = '😢'; color = '#00f'; }
+                            else if (e.includes('surprise')) { icon = '😲'; color = '#ff0'; }
+                            else if (e.includes('fear')) { icon = '😱'; color = '#f0f'; }
+                            else if (e.includes('process')) { icon = '🔄'; color = '#aaa'; }
+                            
+                            emoDiv.innerText = icon ? icon + " " + text.toUpperCase() : '';
+                            emoDiv.style.color = color;
+                        } else {
+                            // Map command to log prefix/logic
+                            let logPrefix = `${cmd}: `;
+                            if(cmd === 'SAY') logPrefix = "AI: ";
+                            log(logPrefix + text);
+                        }
                     }
-                    if (msg.type === 'gemini_whisper') {
-                        log("WHISPER: " + msg.text);
-                    }
-                    if (msg.type === 'gemini_think') {
-                        log("THINK: " + msg.text);
-                    }
-                    if (msg.type === 'gemini_emotion') {
-                        //log("EMOTION: " + msg.emotion);
-                        const emoDiv = document.getElementById('emotionDisplay');
-                        const e = msg.emotion.toLowerCase();
-                        let icon = '';
-                        let color = '#fff';
-                        
-                        if (e.includes('joy') || e.includes('happ')) { icon = '😊'; color = '#0f0'; }
-                        else if (e.includes('anger') || e.includes('angry')) { icon = '😡'; color = '#f00'; }
-                        else if (e.includes('sad')) { icon = '😢'; color = '#00f'; }
-                        else if (e.includes('surprise')) { icon = '😲'; color = '#ff0'; }
-                        else if (e.includes('fear')) { icon = '😱'; color = '#f0f'; }
-                        else if (e.includes('process')) { icon = '🔄'; color = '#aaa'; }
-                        
-                        emoDiv.innerText = icon ? icon + " " + msg.emotion.toUpperCase() : '';
-                        emoDiv.style.color = color;
-                        
-                        // Clear after 5 seconds
-                        //setTimeout(() => { emoDiv.innerText = ''; }, 5000);
-                    }
+
                     if (msg.type === 'log') {
                         // System logs from server
                         // log("SYS: " + msg.text); 
@@ -222,30 +243,34 @@
                     };
 
                     // 4. Audio Monitor (Expects Int16 now, need to fix playing)
-                    // Since we switched server to s16le, we need to convert to float for AudioContext
-                    audioSocket = new WebSocket(protocol + '//' + window.location.host + '/monitor/audio');
-                    audioSocket.binaryType = 'arraybuffer';
-                    
-                    audioSocket.onmessage = (event) => {
-                        if (muteMicCk.checked) return;
+                    // If server disabled mic monitoring, this socket will close immediately.
+                    fetch('/settings').then(r=>r.json()).then(settings => {
+                        if (!settings.ENABLE_CLIENT_MIC_MONITORING) return;
+                        
+                        audioSocket = new WebSocket(protocol + '//' + window.location.host + '/monitor/audio');
+                        audioSocket.binaryType = 'arraybuffer';
+                        
+                        audioSocket.onmessage = (event) => {
+                            if (muteMicCk.checked) return;
 
-                        if (audioCtx.state === 'suspended') audioCtx.resume();
-                        
-                        const rawData = new Int16Array(event.data); 
-                        const floatArray = new Float32Array(rawData.length);
-                        for(let i=0; i<rawData.length; i++) floatArray[i] = rawData[i] / 32768.0;
+                            if (audioCtx.state === 'suspended') audioCtx.resume();
+                            
+                            const rawData = new Int16Array(event.data); 
+                            const floatArray = new Float32Array(rawData.length);
+                            for(let i=0; i<rawData.length; i++) floatArray[i] = rawData[i] / 32768.0;
 
-                        const buffer = audioCtx.createBuffer(1, floatArray.length, 16000);
-                        buffer.copyToChannel(floatArray, 0);
-                        
-                        const source = audioCtx.createBufferSource();
-                        source.buffer = buffer;
-                        source.connect(audioCtx.destination);
-                        
-                        if (nextTime < audioCtx.currentTime) nextTime = audioCtx.currentTime;
-                        source.start(nextTime);
-                        nextTime += buffer.duration;
-                    };
+                            const buffer = audioCtx.createBuffer(1, floatArray.length, 16000);
+                            buffer.copyToChannel(floatArray, 0);
+                            
+                            const source = audioCtx.createBufferSource();
+                            source.buffer = buffer;
+                            source.connect(audioCtx.destination);
+                            
+                            if (nextTime < audioCtx.currentTime) nextTime = audioCtx.currentTime;
+                            source.start(nextTime);
+                            nextTime += buffer.duration;
+                        };
+                    });
 
                     // 5. TTS Monitor (Voice Response) - Mixes with Mic
                     const ttsSocket = new WebSocket(protocol + '//' + window.location.host + '/monitor/tts');
