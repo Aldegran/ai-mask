@@ -67,12 +67,12 @@ export class GeminiService extends EventEmitter {
         });
 
         this.socket.on('close', (code, reason) => {
-            console.log(`Gemini socket closed: ${code} - ${reason}`);
+            console.log(global.color('red', '[Gemini]\t'),`Socket closed: ${global.color('yellow', code)} - ${reason}`);
             this.cleanup();
         });
 
         this.socket.on('error', (err) => {
-            console.error("Gemini socket error:", err);
+            console.log(global.color('red', '[Gemini]\t'),"Socket error:", err);
             this.cleanup();
         });
     }

@@ -84,6 +84,7 @@ app.post('/behaivior', (req, res) => {
 
 // --- GLOBAL STATE ---
 let isGeminiActive = false;
+let isGeminiAudioActive = true; 
 
 // --- SERVICE INITIALIZATION ---
 const videoService = VideoService.getInstance();
@@ -123,7 +124,7 @@ videoService.on('frame', (buffer) => {
 });
 
 audioService.on('audio', (buffer) => {
-    if (isGeminiActive) {
+    if (isGeminiActive && isGeminiAudioActive) {
         geminiService.sendAudioChunk(buffer);
     }
 });
@@ -226,6 +227,11 @@ if (pathname === '/monitor/tts') {
                         geminiService.disconnect();
                         ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Ended' }));
                     }
+                }
+
+                if (msg.type === 'audio_control') {
+                    isGeminiAudioActive = !!msg.enabled;
+                    console.log(global.color('blue', '[Control]\t'),`Gemini Audio: ${isGeminiAudioActive ? 'ON' : 'OFF'}`);
                 }
 
                 if (msg.type === 'gemini_chat') {

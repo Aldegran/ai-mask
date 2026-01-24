@@ -93,7 +93,7 @@ export const services: Record<string, ServicesConfig> = {
             if (!geminiService) return;
             geminiService.sendTextMessage("[CONTEXT]");
         },
-        interval: 30000,
+        interval: 60,
         intervelInstance: null
     },
     'timeSync': {
@@ -103,7 +103,7 @@ export const services: Record<string, ServicesConfig> = {
                 geminiService.sendTextMessage(`[TIME: ${time}]`);
             }
         },
-        interval: 60000, // Every minute
+        interval: 60, // Every minute
         intervelInstance: null
     }
 
@@ -202,7 +202,7 @@ export function serviceStart(type: string): boolean {
     }
     service.intervelInstance = setInterval(() => {
         service.work(null);
-    }, service.interval);
+    }, service.interval*1000);
     return true;
 }
 

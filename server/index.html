@@ -33,7 +33,10 @@
                         <input type="checkbox" id="operatorMode" style="width: 20px; height: 20px;" />
                         OPERATOR SOUND
                     </label>
-
+                    <label style="display: flex; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="sendAudioCk" checked style="width: 20px; height: 20px;">
+                        SEND AUDIO
+                    </label>
                     <label id="muteMicContainer" style="display: none; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
                         <input type="checkbox" id="muteMicCk" style="width: 20px; height: 20px;" checked>
                         MUTE MIC ECHO
@@ -169,6 +172,8 @@
             const sendChatBtn = document.getElementById('sendChatBtn');
             const sendContextBtn = document.getElementById('sendContextBtn');
 
+            const sendAudioCk = document.getElementById('sendAudioCk');
+
             function toggleGemini(enabled) {
                 if (!geminiControlSocket || geminiControlSocket.readyState !== WebSocket.OPEN) return;
                 
@@ -176,6 +181,8 @@
                     type: 'gemini_control', 
                     enabled: enabled 
                 }));
+                // Update Audio Send State based on both toggles
+                updateGeminiAudioState();
 
                 if (enabled) {
                     videoContainer.style.borderColor = "#f00"; // Red Frame
@@ -186,8 +193,20 @@
                 }
             }
 
+            function updateGeminiAudioState() {
+                if (!geminiControlSocket || geminiControlSocket.readyState !== WebSocket.OPEN) return;
+                
+                 geminiControlSocket.send(JSON.stringify({ 
+                    type: 'audio_control', 
+                    enabled: sendAudioCk.checked && useGeminiCk.checked
+                }));
+            }
+
             useGeminiCk.addEventListener('change', (e) => {
                 toggleGemini(e.target.checked);
+            });
+            sendAudioCk.addEventListener('change', (e) => {
+                updateGeminiAudioState();
             });
             operatorMode.addEventListener('change', (e) => {
                 if (geminiControlSocket && geminiControlSocket.readyState === WebSocket.OPEN) {
