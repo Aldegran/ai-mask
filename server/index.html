@@ -6,12 +6,20 @@
             <!-- LEFT COLUMN: Instruction -->
             <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: space-between; text-align: left; height: 100%;">
                 
-                <!--textarea id="instructionArea" style="flex: 1; width: 100%; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 15px; font-family: monospace; font-size: 14px; resize: none; border-radius: 5px;"></textarea>
-                
-                <button id="saveInstrBtn" style="padding: 15px; cursor: pointer; background: #222; color: #888; border: 1px solid #444; border-radius: 5px; font-weight: bold; transition: 0.2s;">SAVE INSTRUCTION TO SERVER</button-->
-                <div id="videoContainer" style="position: relative; border: 5px solid #444; padding: 2px; width: max-content; align-self: center; margin-top: 20px;">
-                    <img id="videoStream" style="width: 640px; min-height: 480px; background: #222;" />
-                    <div id="emotionDisplay" style="position: absolute; bottom: 10px; right: 10px; font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 5px #000, 0 0 10px #f00;"></div>
+                <div style="display: flex; margin-top: 20px;">
+                    <div>
+                        <textarea id="behaviourArea" style="flex: 1; width: 214px; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 5px; font-family: monospace; font-size: 14px; resize: none; border-radius: 5px; height: 435px;"></textarea>
+
+                        <button id="saveBehBtn" style="padding: 15px; cursor: pointer; background: #222; color: #888; border: 1px solid #444; border-radius: 5px; font-weight: bold; transition: 0.2s;">SAVE BEHAIVIOR TO SERVER</button>
+
+                        <!--textarea id="instructionArea" style="flex: 1; width: 100%; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 15px; font-family: monospace; font-size: 14px; resize: none; border-radius: 5px;"></textarea>
+                        
+                        <button id="saveInstrBtn" style="padding: 15px; cursor: pointer; background: #222; color: #888; border: 1px solid #444; border-radius: 5px; font-weight: bold; transition: 0.2s;">SAVE INSTRUCTION TO SERVER</button-->
+                    </div>
+                    <div id="videoContainer" style="position: relative; border: 5px solid #444; padding: 2px; width: max-content; align-self: center;">
+                        <img id="videoStream" style="width: 640px; min-height: 480px; background: #222;" />
+                        <div id="emotionDisplay" style="position: absolute; bottom: 10px; right: 10px; font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 5px #000, 0 0 10px #f00;"></div>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 20px; align-items: center; background: #111; padding: 15px; border-radius: 10px; border: 1px solid #333;">
                     <button id="startAudioBtn" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #004400; color: #fff; border: none; border-radius: 4px;">START MONITOR</button>
@@ -19,6 +27,11 @@
                     <label style="display: flex; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
                         <input type="checkbox" id="useGeminiCk" style="width: 20px; height: 20px;">
                         USE GEMINI AI
+                    </label>
+
+                    <label id="operatorSoundContainer" style="align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="operatorMode" style="width: 20px; height: 20px;" />
+                        OPERATOR SOUND
                     </label>
 
                     <label id="muteMicContainer" style="display: none; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
@@ -56,31 +69,37 @@
             const startBtn = document.getElementById('startAudioBtn');
             const useGeminiCk = document.getElementById('useGeminiCk');
             const muteMicCk = document.getElementById('muteMicCk');
+            const operatorMode = document.getElementById('operatorMode');
             const statusDiv = document.getElementById('status');
             const videoImg = document.getElementById('videoStream');
             const videoContainer = document.getElementById('videoContainer');
             const geminiLogList = document.getElementById('geminiLogList');
             const instructionArea = document.getElementById('instructionArea');
+            const behaviourArea = document.getElementById('behaviourArea');
+            const saveBehBtn = document.getElementById('saveBehBtn');
             const muteMicContainer = document.getElementById('muteMicContainer');
+            const operatorSoundContainer = document.getElementById('operatorSoundContainer');
 
             // --- SETTINGS FETCH ---
             fetch('/settings').then(r => r.json()).then(s => {
                 if (s.ENABLE_CLIENT_MIC_MONITORING) {
                     muteMicContainer.style.display = 'flex';
+                    operatorSoundContainer.style.display = 'flex';
                 }
             }).catch(e => console.log("Settings fetch error", e));
 
             // --- INSTRUCTION MANAGER ---
-            /*async function loadInstruction() {
+            async function loadInstruction() {
                 try {
                     const res = await fetch('/instruction');
                     const text = await res.text();
-                    instructionArea.value = text;
+                    console.log(text);
+                    //instructionArea.value = text;
                 } catch(e) { console.error("Failed to load instruction", e); }
             }
             loadInstruction();
 
-            saveInstrBtn.onclick = async () => {
+            /*saveInstrBtn.onclick = async () => {
                 const text = instructionArea.value;
                 try {
                     const res = await fetch('/instruction', {
@@ -95,6 +114,32 @@
                     }
                 } catch(e) { alert("Error: " + e.message); }
             };*/
+
+            // --- INSTRUCTION MANAGER ---
+            async function loadBehaviour() {
+                try {
+                    const res = await fetch('/behaivior');
+                    const text = await res.text();
+                    behaviourArea.value = text;
+                } catch(e) { console.error("Failed to load behaivior", e); }
+            }
+            loadBehaviour();
+
+            saveBehBtn.onclick = async () => {
+                const text = behaviourArea.value;
+                try {
+                    const res = await fetch('/behaivior', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ text })
+                    });
+                    if (res.ok) {
+                        console.log("Saved! Please toggle 'Use Gemini AI' off and on to apply changes.");
+                    } else {
+                        alert("Error saving.");
+                    }
+                } catch(e) { alert("Error: " + e.message); }
+            };
 
             let audioCtx;
             let videoSocket;
@@ -143,6 +188,16 @@
 
             useGeminiCk.addEventListener('change', (e) => {
                 toggleGemini(e.target.checked);
+            });
+            operatorMode.addEventListener('change', (e) => {
+                if (geminiControlSocket && geminiControlSocket.readyState === WebSocket.OPEN) {
+                     geminiControlSocket.send(JSON.stringify({
+                         type: 'gemini_chat',
+                         text: e.target.checked?"[OWNER_START]":"[OWNER_STOP]"
+                     }));
+                } else {
+                    log("Error: Control socket not connected. Start monitor first.");
+                }
             });
 
             // --- CHAT SEND ---

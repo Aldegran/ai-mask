@@ -16,6 +16,60 @@ interface ServicesConfig {
     intervelInstance: NodeJS.Timeout | null;
 }
 
+export let behaiviorText = "";
+
+function loadBehavior() {
+    try {
+        if (fs.existsSync('behavior.txt')) {
+            behaiviorText = fs.readFileSync('behavior.txt', 'utf-8').trim();
+        }
+    } catch (e) {
+        console.error("Error loading behavior.txt", e);
+    }
+}
+loadBehavior();
+
+export function saveBehaiviorsBuild(text:string): void {
+  try {
+      behaiviorText = text;
+      fs.writeFileSync('behavior.txt', text, 'utf-8');
+      console.log(global.color('green', '[System]\t'), "Behavior settings updated.");
+  } catch (e) {
+      console.error("Error saving behavior.txt", e);
+  }
+}
+
+export function buildInstruction(): string {
+  let systemInstructionText = "";
+  try {
+      if (fs.existsSync('instruction.txt')) {
+          systemInstructionText = fs.readFileSync('instruction.txt', 'utf-8').trim();
+      } else {
+          console.warn("instruction.txt not found, using default.");
+          systemInstructionText = "You are a helpful AI.";
+      }
+  } catch (e) {
+      console.log(global.color('red', '[Gemini]\t'),"Error reading instruction.txt", e);
+      return '';
+  }
+  let contextText = "";
+  loadBehavior();
+  try {
+      if (fs.existsSync('context.txt')) {
+          contextText = fs.readFileSync('context.txt', 'utf-8').trim();
+          if( contextText.length > 0 ){
+              systemInstructionText += '\n' + behaiviorText + settings.DELIM + contextText;
+          } else {
+              systemInstructionText += '\n' + behaiviorText;
+          }
+      }
+  } catch (e) {
+      console.log(global.color('red', '[Gemini]\t'),"Error reading context.txt", e);
+      return '';
+  }
+  return systemInstructionText;
+}
+
 export const services: Record<string, ServicesConfig> = {
     'begin': {
         work: (data: any) => {
@@ -39,14 +93,24 @@ export const services: Record<string, ServicesConfig> = {
             if (!geminiService) return;
             geminiService.sendTextMessage("[CONTEXT]");
         },
-        interval: 10000,
+        interval: 30000,
         intervelInstance: null
     },
+    'timeSync': {
+        work: (data: any) => {
+            if (geminiService) {
+                const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+                geminiService.sendTextMessage(`[TIME: ${time}]`);
+            }
+        },
+        interval: 60000, // Every minute
+        intervelInstance: null
+    }
 
 };
 
 interface CommandConfig {
-    shouldSpeak: () => boolean;
+    shouldSpeak: () => string | false;
     color: string;
     transformText?: (text: string) => string;
     work?: (text: string) => void;
@@ -55,16 +119,16 @@ interface CommandConfig {
 
 export const commands: Record<string, CommandConfig> = {
     'SAY': {
-        shouldSpeak: () => settings.TTS_FOR === "SAY",
+        shouldSpeak: () => settings.TTS_FOR === "SAY" ? 'say' : false,
         color: 'green'
     },
     'WHISPER': {
-        shouldSpeak: () => settings.TTS_FOR === "WHISPER",
+        shouldSpeak: () => settings.TTS_FOR === "WHISPER" ? 'whisper' : false,
         transformText: (text) => "Бажання. " + text, // "Wish. " [content]
         color: 'green'
     },
     'THINK': {
-        shouldSpeak: () => settings.TTS_FOR === "THINK",
+        shouldSpeak: () => settings.TTS_FOR === "THINK" ? 'think' : false,
         color: 'blue'
     },
     'EMOTION': {
@@ -79,10 +143,37 @@ export const commands: Record<string, CommandConfig> = {
         shouldSpeak: () => false,
         color: 'white',
         work: (text: string) => {
+            // Check for duplicates in context.txt
+            /*try {
+                if (fs.existsSync('./context.txt')) {
+                    const existingContent = fs.readFileSync('./context.txt', 'utf-8');
+                    const lines = existingContent.split('\n');
+                    // Check if *any* line contains the exact text after the timestamp
+                    // Line format: [HH:mm:ss] text matches
+                    // We check if the text exists in the file to prevent the model 
+                    // from successfully dumping the entire history repeatedly.
+                    const isDuplicate = lines.some(line => {
+                        // Match "[timestamp] content"
+                        const match = line.match(/^\[.*?\]\s+(.*)$/);
+                        return match && match[1].trim() === text.trim();
+                    });
+
+                    if (isDuplicate) {
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error("Error checking context duplicates:", e);
+            }*/
+
+            // Append with System Time
+            const time = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
+            const logLine = `[${time}] ${text}\n`;
+
             //console.log(global.color('red','[SAVE TEXT]\t'), text);
-          fs.appendFile('./context.txt', text + '\n', (err) => {
-            if (err) console.error(err);
-          });
+            fs.appendFile('./context.txt', logLine, (err) => {
+                if (err) console.error(err);
+            });
         }
     }
 };
@@ -104,7 +195,7 @@ export function getService(type: string): ServicesConfig {
 export function serviceStart(type: string): boolean {
     const service: ServicesConfig = services[type];
     if (!service) return false;
-    console.log(global.color('green','[Service]\t'),`Starting service: "${type}"`);
+    console.log(global.color('green','[Service]\t'),"Starting service: "+global.color('cyan',type));
     if (!service.interval) {
       service.work(null);
       return true;
@@ -118,7 +209,7 @@ export function serviceStart(type: string): boolean {
 export function serviceStop(type: string): boolean {
     const service: ServicesConfig = services[type];
     if (!service) return false;
-    console.log(global.color('green','[Service]\t'),`Stop service: "${type}"`);
+    console.log(global.color('green','[Service]\t'),"Stop service: "+global.color('cyan',type));
     if (service.intervelInstance) {
         clearInterval(service.intervelInstance);
         service.intervelInstance = null;

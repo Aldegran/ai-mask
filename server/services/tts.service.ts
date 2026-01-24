@@ -18,6 +18,16 @@ const voiceSettings = {
 export class TTSService extends EventEmitter {
     private static instance: TTSService;
     private isGenerating: boolean = false;
+    
+    // Separate queues for different output channels
+    private queues: Record<string, string[]> = {
+        'SAY': [],
+        'WHISPER': []
+    };
+    private processing: Record<string, boolean> = {
+        'SAY': false,
+        'WHISPER': false
+    };
 
     private constructor() {
         super();
@@ -28,6 +38,35 @@ export class TTSService extends EventEmitter {
             TTSService.instance = new TTSService();
         }
         return TTSService.instance;
+    }
+
+    public speak(text: string, type: string) {
+        if (!text || text.trim().length === 0) return;
+        
+        // Normalize type (default to SAY if not WHISPER)
+        const target = (type === 'WHISPER') ? 'WHISPER' : 'SAY';
+        
+        this.queues[target].push(text);
+        this.processQueue(target);
+    }
+
+    private async processQueue(type: string) {
+        if (this.processing[type] || this.queues[type].length === 0) return;
+
+        this.processing[type] = true;
+        const text = this.queues[type].shift();
+
+        if (text) {
+            const filename = `${type.toLowerCase()}_${Date.now()}`; // say_123.wav or whisper_123.wav
+            await this.synthesizeAndPlay(text, filename);
+        }
+
+        this.processing[type] = false;
+        
+        // Continue if items remain
+        if (this.queues[type].length > 0) {
+            this.processQueue(type);
+        }
     }
 
     /**
@@ -95,29 +134,28 @@ export class TTSService extends EventEmitter {
 
     /**
      * Synthesizes speech from text and emits an 'audio' event with the WAV buffer.
+     * Internal usage by processQueue.
      */
-    public async speak(text: string): Promise<Buffer | null> {
+    private async synthesizeAndPlay(text: string, filename: string): Promise<Buffer | null> {
         return new Promise((resolve, reject) => {
             if (!text || text.trim().length === 0) {
                 return resolve(null);
             }
 
-            //console.log(global.color('cyan',"[TTS]\t"),`Generating audio for: "${text}"`);
-            this.isGenerating = true;
+            // console.log(global.color('cyan',"[TTS]\t"),`Generating audio for: "${text}"`);
+            // this.isGenerating = true; // Flag legacy
 
             const piperDir = path.resolve(__dirname, '../tools/piper'); 
             const piperExe = path.join(piperDir, 'piper.exe'); 
             const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
-            const outputWav = path.join(piperDir, 'output.wav');
+            const outputWav = path.join(piperDir, filename+'.wav');
 
             if (!fs.existsSync(piperExe)) {
                 console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);
-                this.isGenerating = false;
                 return resolve(null);
             }
             if (!fs.existsSync(modelPath)) {
                 console.log(global.color('red',"[TTS]\t"),`Model not found at ${modelPath}`);
-                this.isGenerating = false;
                 return resolve(null);
             }
 
@@ -125,14 +163,13 @@ export class TTSService extends EventEmitter {
                 const piper = spawn(piperExe, [
                     '--model', modelPath,
                     '--output_file', outputWav,
-                    '--speaker', voiceSettings.speaker.toString(), // Some models act up if speaker ID is passed for single-speaker models. The UA model is likely single speaker.
+                    '--speaker', voiceSettings.speaker.toString(),
                     '--length_scale', voiceSettings.length_scale.toString(),
                     '--noise_scale', voiceSettings.noise_scale.toString(),
                     '--noise_w', voiceSettings.noise_w.toString(),
                     '--sentence_silence', voiceSettings.sentence_silence.toString(),
                 ]);
 
-                // Handle process input
                 piper.stdin.write(text);
                 piper.stdin.end();
 
@@ -140,7 +177,7 @@ export class TTSService extends EventEmitter {
                 piper.stderr.on('data', (d) => stderrLog += d);
 
                 piper.on('close', (code) => {
-                    this.isGenerating = false;
+                    // this.isGenerating = false; 
                     
                     if (code !== 0) {
                         console.log(global.color('red',"[TTS]\t"),`Piper process exited with code ${code}`);
@@ -152,20 +189,51 @@ export class TTSService extends EventEmitter {
                     try {
                         if (fs.existsSync(outputWav)) {
                             const audioBuffer = fs.readFileSync(outputWav);
-                            //console.log(global.color('cyan',"[TTS]\t"),`Generated ${audioBuffer.length} bytes.`);
-                            
-                            // Emit the audio for listeners (e.g. WebSocket broadcaster)
                             this.emit('audio', audioBuffer);
 
+                            // Check Env or Default to 'default'
+                            const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
+
                             // Local Playback for "Earpiece" (Windows)
-                            if (process.env.AUDIO_OUTPUT_MODE === 'default' && process.platform === 'win32') {
-                                const psPlay = `(New-Object Media.SoundPlayer "${outputWav}").PlaySync()`;
-                                exec(`powershell -c "${psPlay}"`, (err) => {
-                                    if (err) console.log(global.color('red',"[TTS]\t"),"Local playback error:", err);
+                            if (mode === 'default' && process.platform === 'win32') {
+                                //const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
+                                //console.log(currentTime, global.color('cyan',"[TTS]\t"), `Playing ${filename}...`);
+                                
+                                const psScript = `(New-Object Media.SoundPlayer "${outputWav}").PlaySync()`;
+                                const player = spawn('powershell', ['-c', psScript]);
+
+                                player.on('close', (code) => {
+                                    //const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
+                                    //console.log(currentTime, global.color('green',"[TTS]\t"), `Finished ${filename}.`);
+                                    try { fs.unlinkSync(outputWav); } catch(e){} 
+                                    resolve(audioBuffer);
                                 });
+                                
+                                player.on('error', (err) => {
+                                    console.error("Playback error", err);
+                                    try { fs.unlinkSync(outputWav); } catch(e){} 
+                                    resolve(audioBuffer);
+                                });
+
+                            } else {
+                                // Web/Network mode: Simulate playback time to maintain queue order
+                                // Piper default: 22050Hz, 16bit (2 bytes), Mono (1 channel) => ~44100 bytes/sec
+                                // Adding a small buffer factor to ensure separation
+                                const bytesPerSecond = 44100;
+                                const durationMs = (audioBuffer.length / bytesPerSecond) * 1000;
+                                const waitTime = Math.ceil(durationMs);
+                                
+                                //const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
+                                //console.log(currentTime, global.color('cyan',"[TTS]\t"), `Emitting ${filename} (Virtual Playback: ${waitTime}ms)...`);
+
+                                setTimeout(() => {
+                                    // const finishTime = new Date().toLocaleTimeString('uk-UA');
+                                    // console.log(finishTime, global.color('green',"[TTS]\t"), `Finished Virtual ${filename}.`);
+                                    try { fs.unlinkSync(outputWav); } catch(e){} 
+                                    resolve(audioBuffer);
+                                }, waitTime);
                             }
                             
-                            resolve(audioBuffer);
                         } else {
                             console.log(global.color('red',"[TTS]\t"),"Output file not found after generation.");
                             resolve(null);
@@ -178,13 +246,11 @@ export class TTSService extends EventEmitter {
 
                 piper.on('error', (err) => {
                     console.log(global.color('red',"[TTS]\t"),"Process error:", err);
-                    this.isGenerating = false;
                     resolve(null);
                 });
 
             } catch (e) {
                 console.log(global.color('red',"[TTS]\t"),"Exception:", e);
-                this.isGenerating = false;
                 resolve(null);
             }
         });

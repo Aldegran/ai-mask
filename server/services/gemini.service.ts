@@ -6,7 +6,7 @@ import fs from 'fs';
 import { EventEmitter } from 'events';
 
 import { ProtocolProcessor } from './processor';
-import { getCommandConfig, serviceStart, serviceStop } from '../config/commands';
+import { getCommandConfig, serviceStart, serviceStop, buildInstruction } from '../config/commands';
 import settings from '../config/index';
 
 config();
@@ -23,7 +23,6 @@ export class GeminiService extends EventEmitter {
 
     private constructor() {
         super();
-        this.context = this.loadContext();
     }
 
     public static getInstance(): GeminiService {
@@ -31,19 +30,6 @@ export class GeminiService extends EventEmitter {
             GeminiService.instance = new GeminiService();
         }
         return GeminiService.instance;
-    }
-
-    private loadContext() {
-        try {
-            if (fs.existsSync('context.json')) {
-                const contextData = fs.readFileSync('context.json', 'utf-8');
-                return JSON.parse(contextData);
-            }
-            return {};
-        } catch (error) {
-            console.error("Error loading context.json:", error);
-            return {};
-        }
     }
 
     public connect() {
@@ -69,8 +55,10 @@ export class GeminiService extends EventEmitter {
             this.sendSetup();
             
             setTimeout(() => {
+                //serviceStart('begin');
                 serviceStart('start');
                 serviceStart('contextUpdater');
+                serviceStart('timeSync');
             }, 500);
         });
 
@@ -101,6 +89,7 @@ export class GeminiService extends EventEmitter {
         this.socket = null;
         this.responseBuffer = "";
         serviceStop('contextUpdater');
+        serviceStop('timeSync');
         if (this.scanInterval) {
             clearInterval(this.scanInterval);
             this.scanInterval = null;
@@ -110,28 +99,10 @@ export class GeminiService extends EventEmitter {
     private sendSetup() {
         if (!this.socket) return;
         
-        let systemInstructionText = "";
-        try {
-            if (fs.existsSync('instruction.txt')) {
-                systemInstructionText = fs.readFileSync('instruction.txt', 'utf-8').trim();
-            } else {
-                console.warn("instruction.txt not found, using default.");
-                systemInstructionText = "You are a helpful AI.";
-            }
-        } catch (e) {
-            console.log(global.color('red', '[Gemini]\t'),"Error reading instruction.txt", e);
-            return;
-        }
-        let contextText = "";
-        try {
-            if (fs.existsSync('context.txt')) {
-                contextText = fs.readFileSync('context.txt', 'utf-8').trim();
-                if( contextText.length > 0 ){
-                    systemInstructionText += settings.DELIM + contextText;
-                }
-            }
-        } catch (e) {
-            console.log(global.color('red', '[Gemini]\t'),"Error reading context.txt", e);
+        const systemInstructionText = buildInstruction();
+        
+        if(systemInstructionText.length === 0) {
+            console.log(global.color('red', '[Gemini]\t'),"System instruction is empty, aborting setup.");
             return;
         }
 
@@ -300,8 +271,12 @@ export class GeminiService extends EventEmitter {
                 continue;
             }
             const color = config.color as any; // Cast to satisfy color function type if needed, or string
+            const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
+            console.log(currentTime, global.color(color, `[${cmd.type}]:\t`), cmd.content);
 
-            console.log(global.color(color, `[${cmd.type}]:\t`), cmd.content);
+            if(config.work) {
+                config.work(cmd.content);
+            }
 
             // Emit single unified event
             this.emit('command', cmd);
