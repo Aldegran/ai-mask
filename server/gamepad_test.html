@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR BOX Remote Tester</title>
+    <style>
+        body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
+        .log { white-space: pre-wrap; margin-top: 10px; }
+        .status { margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .key { display: inline-block; padding: 2px 5px; border: 1px solid #0f0; margin: 2px; }
+    </style>
+</head>
+<body>
+    <h1>VR BOX (ST17H26) Tester</h1>
+    <div class="status" id="status">Waiting for input... Press buttons on your remote.</div>
+
+    <h3>Keyboard Events (Modes: Music @+A, Game @+B, Selfie @+C)</h3>
+    <div id="key-log" class="log"></div>
+
+    <h3>Gamepad API (Mode: Game @+B)</h3>
+    <div id="gamepad-log" class="log">Scanning for gamepads...</div>
+
+    <script>
+        const keyLog = document.getElementById('key-log');
+        const gamepadLog = document.getElementById('gamepad-log');
+        const status = document.getElementById('status');
+
+        // KEYBOARD EVENTS
+        window.addEventListener('keydown', (e) => {
+            const line = document.createElement('div');
+            line.innerHTML = `[KEY] Code: <b>${e.code}</b> | Key: <b>${e.key}</b> | KeyCode: ${e.keyCode}`;
+            keyLog.prepend(line);
+            status.textContent = `Last Input: Keyboard - ${e.code}`;
+            
+            // Prevent default for common remote keys so they don't navigate the page
+            if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'VolumeUp', 'VolumeDown'].includes(e.code)) {
+                e.preventDefault();
+            }
+        });
+
+        // MOUSE EVENTS (for Mouse Mode @+D)
+        window.addEventListener('mousedown', (e) => {
+            const line = document.createElement('div');
+            line.innerHTML = `[MOUSE] Button: <b>${e.button}</b> (0=Left, 1=Middle, 2=Right)`;
+            keyLog.prepend(line);
+            status.textContent = `Last Input: Mouse Click ${e.button}`;
+        });
+
+        // GAMEPAD POLLING
+        function updateGamepad() {
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            let gpOutput = '';
+            
+            for (const gp of gamepads) {
+                if (gp) {
+                    let info = `Gamepad Index: ${gp.index}, ID: ${gp.id}\n`;
+                    info += `  Buttons: ${gp.buttons.length}\n`;
+                    gp.buttons.forEach((b, i) => {
+                        if (b.pressed) info += `    Button ${i}: PRESSED (${b.value})\n`;
+                    });
+                    info += `  Axes: ${gp.axes.length}\n`;
+                    gp.axes.forEach((a, i) => {
+                        if (Math.abs(a) > 0.1) info += `    Axis ${i}: ${a.toFixed(2)}\n`;
+                    });
+                    gpOutput += info + '\n';
+                }
+            }
+            if (gpOutput) {
+                gamepadLog.textContent = gpOutput;
+            } else {
+                gamepadLog.textContent = "No Gamepad input detected (Try switching to Mode @+B or press buttons)";
+            }
+            requestAnimationFrame(updateGamepad);
+        }
+
+        window.addEventListener("gamepadconnected", (e) => {
+            console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
+                e.gamepad.index, e.gamepad.id,
+                e.gamepad.buttons.length, e.gamepad.axes.length);
+            status.textContent = "Gamepad Connected! Try Mod @+B";
+        });
+
+        updateGamepad();
+    </script>
+</body>
+</html>

@@ -5,6 +5,50 @@ import { config } from 'dotenv';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 
+/**
+ * КОДЫ ЗАКРЫТИЯ WEBSOCKET GEMINI И ОБРАБОТКА ОШИБОК
+ * ----------------------------------------------------
+ * 1000 (Normal Closure / Нормальное закрытие):
+ *   - Сессия завершена нормально.
+ * 
+ * 1001 (Going Away / Уход):
+ *   - Конечная точка "уходит" (остановка сервера или навигация в браузере).
+ * 
+ * 1002 (Protocol Error / Ошибка протокола):
+ *   - Конечная точка разорвала соединение из-за ошибки протокола.
+ * 
+ * 1003 (Unsupported Data / Неподдерживаемые данные):
+ *   - Получены данные типа, который не может быть принят (например, бинарные вместо текста).
+ * 
+ * 1005 (No Status Received / Статус не получен):
+ *   - Код статуса не был предоставлен, хотя он ожидался.
+ * 
+ * 1006 (Abnormal Closure / Аномальное закрытие):
+ *   - "Сброс соединения" или "Потеря соединения". Сокет закрылся без отправки фрейма закрытия.
+ *   - Часто случается при перебоях в сети.
+ * 
+ * 1007 (Invalid Frame Payload Data / Неверные данные полезной нагрузки):
+ *   - Полученные данные не соответствуют типу сообщения (например, некорректный UTF-8).
+ *   - Может возникнуть, если аудиофрагменты повреждены или заголовки неверны.
+ * 
+ * 1008 (Policy Violation / Нарушение политики или Ресурс не найден):
+ *   - "Операция не реализована, не поддерживается или не включена".
+ *   - Часто встречается при вызове функций (неверные ID, неподдерживаемые инструменты).
+ *   - Также может указывать на неверный API-ключ или проблемы с доступом.
+ * 
+ * 1009 (Message Too Big / Сообщение слишком большое):
+ *   - Сообщение слишком велико для обработки сервером.
+ * 
+ * 1011 (Internal Server Error / Внутренняя ошибка сервера):
+ *   - "The service is currently unavailable" -> Перегрузка или сбой на стороне сервера.
+ *   - "Failed to run inference for model..." -> Сбой модели ИИ (например, ошибка аудио токенизатора).
+ *   - "Deadline expired before operation could complete" -> Контекст слишком велик или тайм-аут сессии.
+ *   - Самая частая ошибка при длительных сессиях с потоковым аудио/видео.
+ * 
+ * 1015 (TLS Handshake / Рукопожатие TLS):
+ *   - Сбой рукопожатия TLS (например, проверка сертификата).
+ */
+
 import { ProtocolProcessor } from './processor';
 import { getCommandConfig, serviceStart, serviceStop, buildInstruction } from '../config/commands';
 import settings from '../config/index';
@@ -74,7 +118,7 @@ export class GeminiService extends EventEmitter {
             if(code === 1000) {
                     console.log(global.color('yellow', '[Gemini]\t'),"Socket closed normally.");
             } else {
-            console.log(global.color('red', '[Gemini]\t'),`Socket closed: ${global.color('yellow', code)} - ${reason}`);
+                console.log(global.color('red', '[Gemini]\t'),`Socket closed: ${global.color('yellow', code)} - ${reason}`);
                 
                 // Auto-reconnect for specific error codes
                 // 1001: Server going away (restart)

@@ -149,3 +149,4 @@ server/tools/piper/onnxruntime.dll
 server/tools/piper/onnxruntime_providers_shared.dll
 server/tools/piper/piper.exe
 server/tools/piper/piper_phonemize.dll
+server/tools/sox/

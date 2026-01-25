@@ -1,3 +1,21 @@
+/**
+ * Настройка параметров SoX (Sound eXchange) для изменения голоса:
+ * 
+ * sudo apt-get install sox libsox-fmt-all # Установка SoX на Ubuntu
+ * 
+ * SOX_PARAMS - строка аргументов эффектов, применяемых к аудио.
+ * Основные эффекты:
+ * - pitch [shift]: Сдвиг высоты тона (в полутонах * 100). Пример: 'pitch -300' (ниже на 3 полутона), 'pitch 400' (выше).
+ * - echo [gain-in] [gain-out] [delay] [decay]: Эхо. Пример: 'echo 0.8 0.8 60 0.4' (роботизированное эхо).
+ * - reverb [reverberance] [hf-damping] [room-scale] [stereo-depth] [pre-delay] [wet-gain]: Реверберация (эхо комнаты).
+ * - bass/treble [gain] [frequency] [width]: Эквалайзер. Пример: 'bass +3 100 0.5' (усиление басов).
+ * - overdrive [gain] [colour]: Дисторшн/перегруз. Пример: 'overdrive 20 20' (эффект рации).
+ * 
+ * Комбинации:
+ * Робот: "pitch -300 speed 0.9 echo 0.8 0.8 60 0.4"
+ * Демон: "pitch -600 bass +5 80 0.4 reverb 50 50 100"
+ * Эльф: "pitch 400 treble +3"
+ */
 import { config } from 'dotenv';
 
 config();
