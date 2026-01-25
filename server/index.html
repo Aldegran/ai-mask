@@ -43,6 +43,14 @@
                     </label>
                 </div>
             
+                <!-- SOX TESTER -->
+                <div style="display: flex; gap: 10px; align-items: center; background: #111; padding: 15px; border-radius: 10px; border: 1px solid #333; margin-top: 10px;">
+                    <span style="font-weight: bold; color: #aaa;">VOICE TESTER:</span>
+                    <input id="soxParamsInput" type="text" value="pitch -300 speed [s] echo 0.8 0.8 60 0.4" placeholder="SoX Params" style="flex: 1; min-width: 0; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 8px; border-radius: 4px; font-family: monospace;">
+                    <button id="testSoxBtn" style="padding: 8px 15px; cursor: pointer; background: #444; color: #fff; border: none; border-radius: 4px; font-weight: bold; white-space: nowrap;">TEST AUDIO</button>
+                    <audio id="testAudioPlayer" controls style="height: 30px; width: 250px; display: none;"></audio>
+                </div>
+
                 <div style="display: flex; gap: 10px; margin-top: 20px;">
                     <textarea id="chatInput" placeholder="Type a message to Gemini..." style="flex: 1; min-height: 60px; background: #0a0a0a; color: #ddd; border: 1px solid #333; padding: 10px; resize: none; border-radius: 5px; font-family: monospace;"></textarea>
                     <button id="sendChatBtn" style="padding: 0 20px; cursor: pointer; background: #004400; color: #fff; border: none; border-radius: 4px; font-weight: bold;">SEND</button>
@@ -82,6 +90,9 @@
             const saveBehBtn = document.getElementById('saveBehBtn');
             const muteMicContainer = document.getElementById('muteMicContainer');
             const operatorSoundContainer = document.getElementById('operatorSoundContainer');
+            const soxInput = document.getElementById('soxParamsInput');
+            const testSoxBtn = document.getElementById('testSoxBtn');
+            const testAudioPlayer = document.getElementById('testAudioPlayer');
 
             // --- SETTINGS FETCH ---
             fetch('/settings').then(r => r.json()).then(s => {
@@ -89,7 +100,38 @@
                     muteMicContainer.style.display = 'flex';
                     operatorSoundContainer.style.display = 'flex';
                 }
+                // Pre-fill SoX params if available, unless user edited
+                // if(s.SOX_PARAMS) soxInput.value = s.SOX_PARAMS; 
             }).catch(e => console.log("Settings fetch error", e));
+
+            // --- SOX TESTER ---
+            testSoxBtn.onclick = async () => {
+                const params = encodeURIComponent(soxInput.value);
+                const url = `/test-sox?settings=${params}&t=${Date.now()}`; // timestamp to prevent caching
+                
+                testSoxBtn.disabled = true;
+                testSoxBtn.innerText = "GENERATING...";
+                testAudioPlayer.style.display = 'none';
+                testAudioPlayer.pause();
+
+                try {
+                    // Fetch as blob to ensure valid audio before playing
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(await res.text());
+                    
+                    const blob = await res.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    
+                    testAudioPlayer.src = audioUrl;
+                    testAudioPlayer.style.display = 'block';
+                    testAudioPlayer.play();
+                } catch(e) {
+                    alert("Error generating audio: " + e.message);
+                } finally {
+                    testSoxBtn.disabled = false;
+                    testSoxBtn.innerText = "TEST AUDIO";
+                }
+            };
 
             // --- INSTRUCTION MANAGER ---
             async function loadInstruction() {

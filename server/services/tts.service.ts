@@ -4,10 +4,11 @@ import { spawn, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
+import settings from '../config/index';
 
 // Configuration for Voice
-const voiceSettings = {
-    length_scale: 0.9,//1.2
+export const voiceSettings = {
+    length_scale: 0.8,//1.2
     noise_scale: 0.01,//0.667
     noise_w: 0.1,//0.8
     sentence_silence : 0.2,
@@ -38,6 +39,10 @@ export class TTSService extends EventEmitter {
             TTSService.instance = new TTSService();
         }
         return TTSService.instance;
+    }
+
+    public get isSaying(): boolean {
+        return this.processing['SAY'];
     }
 
     public speak(text: string, type: string) {
@@ -142,13 +147,10 @@ export class TTSService extends EventEmitter {
                 return resolve(null);
             }
 
-            // console.log(global.color('cyan',"[TTS]\t"),`Generating audio for: "${text}"`);
-            // this.isGenerating = true; // Flag legacy
-
             const piperDir = path.resolve(__dirname, '../tools/piper'); 
             const piperExe = path.join(piperDir, 'piper.exe'); 
             const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
-            const outputWav = path.join(piperDir, filename+'.wav');
+            const soxExe = path.resolve(__dirname, '../tools/sox/sox.exe');
 
             if (!fs.existsSync(piperExe)) {
                 console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);
@@ -160,88 +162,121 @@ export class TTSService extends EventEmitter {
             }
 
             try {
-                const piper = spawn(piperExe, [
+                // 1. Piper Process (Generate to STDOUT as RAW S16LE)
+                // We use --output-raw to prevent WAV header generation which causes static in pipes
+                const piperArgs = [
                     '--model', modelPath,
-                    '--output_file', outputWav,
+                    '--output-raw', // Write raw data to stdout
                     '--speaker', voiceSettings.speaker.toString(),
                     '--length_scale', voiceSettings.length_scale.toString(),
                     '--noise_scale', voiceSettings.noise_scale.toString(),
                     '--noise_w', voiceSettings.noise_w.toString(),
                     '--sentence_silence', voiceSettings.sentence_silence.toString(),
-                ]);
+                ];
 
+                const piper = spawn(piperExe, piperArgs);
+                
+                // Write text input
                 piper.stdin.write(text);
                 piper.stdin.end();
 
-                let stderrLog = "";
-                piper.stderr.on('data', (d) => stderrLog += d);
+                // 2. Setup Audio Pipeline
+                let audioSource: any = piper.stdout;
+                let activeProcessStr = "Piper";
 
-                piper.on('close', (code) => {
-                    // this.isGenerating = false; 
+                // Audio Format Constants for Piper Medium Models
+                // S16LE 22050Hz Mono is standard for 'medium' onnx models
+                const rawFormatArgs = ['-t', 'raw', '-r', '22050', '-b', '16', '-c', '1', '-e', 'signed-integer'];
+
+                // If Voice Changer is Enabled & SoX exists
+                if (settings.USE_VOICE_CHANGER && fs.existsSync(soxExe)) {
+                    activeProcessStr = "Piper -> SoX";
                     
-                    if (code !== 0) {
-                        console.log(global.color('red',"[TTS]\t"),`Piper process exited with code ${code}`);
-                        console.log(stderrLog);
-                        return resolve(null);
-                    }
+                    // SoX Speed = 1 / Piper Length Scale (Inverse relationship)
+                    const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
+                    
+                    const effectArgs = settings.SOX_PARAMS
+                        .replace('[s]', soxSpeed)
+                        .split(' ')
+                        .filter(x => x.length > 0);
 
-                    // Read the output file
-                    try {
-                        if (fs.existsSync(outputWav)) {
-                            const audioBuffer = fs.readFileSync(outputWav);
-                            this.emit('audio', audioBuffer);
+                    // SoX Filter: Input Raw -> Output Raw (with effects)
+                    const sox = spawn(soxExe, [
+                        ...rawFormatArgs, '-', // Input
+                        ...rawFormatArgs, '-', // Output
+                        ...effectArgs
+                    ]);
 
-                            // Check Env or Default to 'default'
-                            const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
+                    sox.on('error', (err) => console.error('[TTS] SoX Process Error:', err));
+                    
+                    // Pipe Piper -> SoX
+                    piper.stdout.pipe(sox.stdin);
+                    
+                    // Now our source is SoX's output
+                    audioSource = sox.stdout;
+                }
 
-                            // Local Playback for "Earpiece" (Windows)
-                            if (mode === 'default' && process.platform === 'win32') {
-                                //const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
-                                //console.log(currentTime, global.color('cyan',"[TTS]\t"), `Playing ${filename}...`);
-                                
-                                const psScript = `(New-Object Media.SoundPlayer "${outputWav}").PlaySync()`;
-                                const player = spawn('powershell', ['-c', psScript]);
+                // 3. Capture Result
+                const chunks: Buffer[] = [];
+                audioSource.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-                                player.on('close', (code) => {
-                                    //const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
-                                    //console.log(currentTime, global.color('green',"[TTS]\t"), `Finished ${filename}.`);
-                                    try { fs.unlinkSync(outputWav); } catch(e){} 
-                                    resolve(audioBuffer);
-                                });
-                                
-                                player.on('error', (err) => {
-                                    console.error("Playback error", err);
-                                    try { fs.unlinkSync(outputWav); } catch(e){} 
-                                    resolve(audioBuffer);
-                                });
+                // Capture Piper logs for debug
+                let stderrLog = "";
+                piper.stderr.on('data', (d: any) => stderrLog += d.toString());
 
-                            } else {
-                                // Web/Network mode: Simulate playback time to maintain queue order
-                                // Piper default: 22050Hz, 16bit (2 bytes), Mono (1 channel) => ~44100 bytes/sec
-                                // Adding a small buffer factor to ensure separation
-                                const bytesPerSecond = 44100;
-                                const durationMs = (audioBuffer.length / bytesPerSecond) * 1000;
-                                const waitTime = Math.ceil(durationMs);
-                                
-                                //const currentTime = new Date().toLocaleTimeString('uk-UA'); // HH:mm:ss
-                                //console.log(currentTime, global.color('cyan',"[TTS]\t"), `Emitting ${filename} (Virtual Playback: ${waitTime}ms)...`);
+                // On Stream Finish
+                audioSource.on('end', () => {
+                   const audioBuffer = Buffer.concat(chunks);
+                   
+                   if (audioBuffer.length === 0) {
+                       console.log(global.color('red',"[TTS]\t"),`Audio generation empty (${activeProcessStr}).`);
+                       return resolve(null);
+                   }
 
-                                setTimeout(() => {
-                                    // const finishTime = new Date().toLocaleTimeString('uk-UA');
-                                    // console.log(finishTime, global.color('green',"[TTS]\t"), `Finished Virtual ${filename}.`);
-                                    try { fs.unlinkSync(outputWav); } catch(e){} 
-                                    resolve(audioBuffer);
-                                }, waitTime);
-                            }
+                   // Create WAV Header for Client/Browser Compatibility (RAW -> WAV)
+                   // Browser needs a container to play the stream via AudioContext or <audio>
+                   const wavHeader = Buffer.alloc(44);
+                   wavHeader.write('RIFF', 0);
+                   wavHeader.writeUInt32LE(36 + audioBuffer.length, 4); // ChunkSize
+                   wavHeader.write('WAVE', 8);
+                   wavHeader.write('fmt ', 12);
+                   wavHeader.writeUInt32LE(16, 16); // Subchunk1Size
+                   wavHeader.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
+                   wavHeader.writeUInt16LE(1, 22);  // NumChannels (1 = Mono)
+                   wavHeader.writeUInt32LE(22050, 24); // SampleRate
+                   wavHeader.writeUInt32LE(22050 * 1 * 16 / 8, 28); // ByteRate
+                   wavHeader.writeUInt16LE(1 * 16 / 8, 32); // BlockAlign
+                   wavHeader.writeUInt16LE(16, 34); // BitsPerSample
+                   wavHeader.write('data', 36);
+                   wavHeader.writeUInt32LE(audioBuffer.length, 40); // Subchunk2Size
+
+                   const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+                   this.emit('audio', wavBuffer); // Send WAV to Gemini & Web
+
+                   // 4. Playback Logic
+                   const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
+
+                   if (mode === 'default' && process.platform === 'win32') {
+                        // Playback on Server Speakers
+                        if (fs.existsSync(soxExe)) {
+                            // Use SoX to play the raw memory buffer directly to speakers
+                            const player = spawn(soxExe, [...rawFormatArgs, '-', '-d', '-q']);
+                            player.stdin.write(audioBuffer);
+                            player.stdin.end();
                             
+                            player.on('close', () => resolve(audioBuffer));
+                            player.on('error', () => resolve(audioBuffer)); // non-blocking error
                         } else {
-                            console.log(global.color('red',"[TTS]\t"),"Output file not found after generation.");
-                            resolve(null);
+                            // Fallback impossible for RAw without conversion
+                            console.log(global.color('red',"[TTS]\t"), "SoX missing for playback of raw stream.");
+                            resolve(audioBuffer);
                         }
-                    } catch (readErr) {
-                        console.log(global.color('red',"[TTS]\t"),"Error reading output file:", readErr);
-                        resolve(null);
-                    }
+                   } else {
+                       // Web Mode Simulation (Virtual Delay)
+                        const bytesPerSecond = 44100; // 22050 * 2
+                        const durationMs = (audioBuffer.length / bytesPerSecond) * 1000;
+                        setTimeout(() => resolve(audioBuffer), durationMs);
+                   }
                 });
 
                 piper.on('error', (err) => {

@@ -20,6 +20,8 @@ export class GeminiService extends EventEmitter {
     // Buffering & automated scanning
     private responseBuffer: string = "";
     private scanInterval: NodeJS.Timeout | null = null;
+    public usedTokens: number = 0;
+    public restartStage: number = 0;
 
     private constructor() {
         super();
@@ -52,6 +54,8 @@ export class GeminiService extends EventEmitter {
         this.socket.on('open', () => {
             console.log(global.color('green', "Connected to Gemini"));
             this.isConnected = true;
+            this.usedTokens = 0;
+            this.restartStage = 0;
             this.sendSetup();
             
             setTimeout(() => {
@@ -67,7 +71,25 @@ export class GeminiService extends EventEmitter {
         });
 
         this.socket.on('close', (code, reason) => {
+            if(code === 1000) {
+                    console.log(global.color('yellow', '[Gemini]\t'),"Socket closed normally.");
+            } else {
             console.log(global.color('red', '[Gemini]\t'),`Socket closed: ${global.color('yellow', code)} - ${reason}`);
+                
+                // Auto-reconnect for specific error codes
+                // 1001: Server going away (restart)
+                // 1006: Abnormal closure (network drop)
+                // 1009: Message too big (context reset required)
+                // 1011: Internal server error (overload)
+                // 1015: TLS Handshake (network glitch)
+                const restartableCodes = [1001, 1006, 1009, 1011, 1015];
+                if (restartableCodes.includes(code)) {
+                     console.log(global.color('yellow', '[Gemini]\t'), `Auto-reconnect in 3s due to error ${code}...`);
+                     setTimeout(() => {
+                         this.reconnect();
+                     }, 1000);
+                }
+            }
             this.cleanup();
         });
 
@@ -93,6 +115,18 @@ export class GeminiService extends EventEmitter {
         if (this.scanInterval) {
             clearInterval(this.scanInterval);
             this.scanInterval = null;
+        }
+    }
+
+    public reconnect() {
+        console.log(global.color('yellow', '[Gemini]\t'),`Reconnecting to Gemini...`);
+        if (this.socket) {
+            this.disconnect();
+            setTimeout(()=>{
+                this.connect();
+            },500);
+        } else {
+            this.connect();
         }
     }
 
@@ -126,7 +160,7 @@ export class GeminiService extends EventEmitter {
     }
 
     public sendVideoFrame(c: Buffer) {
-        if (!this.isConnected || !this.socket) return;
+        if (!this.isConnected || !this.socket || this.restartStage) return;
         
         const msg = {
             realtime_input: {
@@ -142,7 +176,7 @@ export class GeminiService extends EventEmitter {
     }
 
     public sendAudioChunk(c: Buffer) {
-        if (!this.isConnected || !this.socket) return;
+        if (!this.isConnected || !this.socket || this.restartStage) return;
 
         const msg = {
             realtime_input: {
@@ -226,8 +260,47 @@ export class GeminiService extends EventEmitter {
             } else {
                  console.log(global.color('gray', `[Gemini Raw]: ${str}`));
             }*/
-
+           //console.log(global.color('gray', `[Gemini Raw]: ${str}`));
             const msg = JSON.parse(str);
+            if(msg.usageMetadata) {
+                if(msg.usageMetadata?.totalTokenCount){
+                    this.usedTokens = msg.usageMetadata?.totalTokenCount;
+                    console.log(global.color('cyan', `[Tokens]:\t`), `Left ${settings.MAX_TOKENS - this.usedTokens}`);
+                    if(this.usedTokens > settings.MAX_TOKENS && this.restartStage === 0){
+                        console.log(global.color('yellow', '[Gemini]\t'),`Token limit reached, ${this.usedTokens}. Prepare reconnect.`);
+                        this.restartStage = 1;
+                        serviceStop('contextUpdater');
+                        serviceStop('timeSync');
+                        serviceStart('contextFast');
+                        // Watchdog & Listener configuration
+                        let waitTime: NodeJS.Timeout | null = null;
+
+                        // 1. Start listening for context save completion (Stage 2)
+                        waitTime = setInterval(() => {
+                            if (this.restartStage === 2) {
+                                this.restartStage = 3;
+                                if (waitTime) clearInterval(waitTime);
+                                setTimeout(() => {
+                                    this.reconnect();
+                                }, 1000);
+                            }
+                            // Safety: stop if reset happened externally
+                            if (this.restartStage === 0 && waitTime) {
+                                clearInterval(waitTime);
+                            }
+                        }, 300);
+
+                        // 2. Safety Timeout (5s) - if context saving hangs, force reconnect
+                        setTimeout(() => {
+                            if (this.restartStage === 1) {
+                                console.log(global.color('red', '[Gemini]\t'), "Context save timeout. Forcing reconnect.");
+                                if (waitTime) clearInterval(waitTime);
+                                this.reconnect();
+                            }
+                        }, 5000);
+                    };
+                }
+            }
 
             // Handle "Turn"
             if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {

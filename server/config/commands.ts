@@ -13,7 +13,7 @@ export function setGeminiInstance(instance: GeminiService) {
 interface ServicesConfig {
     work: (data: any) => any;
     interval: number;
-    intervelInstance: NodeJS.Timeout | null;
+    intervalInstance: NodeJS.Timeout | null;
 }
 
 export let behaiviorText = "";
@@ -79,14 +79,14 @@ export const services: Record<string, ServicesConfig> = {
                 });
         },
         interval: 0,
-        intervelInstance: null
+        intervalInstance: null
     },
     'start': {
         work: (data: any) => {
             //if (geminiService) geminiService.sendTextMessage("[CONTEXT]");
         },
         interval: 0,
-        intervelInstance: null
+        intervalInstance: null
     },
     'contextUpdater': {
         work: (data: any) => {
@@ -94,7 +94,15 @@ export const services: Record<string, ServicesConfig> = {
             geminiService.sendTextMessage("[CONTEXT]");
         },
         interval: 60,
-        intervelInstance: null
+        intervalInstance: null
+    },
+    'contextFast': {
+        work: (data: any) => {
+            if (!geminiService) return;
+            geminiService.sendTextMessage("[CONTEXT]");
+        },
+        interval: 0,
+        intervalInstance: null
     },
     'timeSync': {
         work: (data: any) => {
@@ -104,7 +112,7 @@ export const services: Record<string, ServicesConfig> = {
             }
         },
         interval: 60, // Every minute
-        intervelInstance: null
+        intervalInstance: null
     }
 
 };
@@ -174,6 +182,10 @@ export const commands: Record<string, CommandConfig> = {
             fs.appendFile('./context.txt', logLine, (err) => {
                 if (err) console.error(err);
             });
+            
+            if(geminiService?.restartStage === 1){
+                geminiService.restartStage = 2;
+            }
         }
     }
 };
@@ -200,7 +212,7 @@ export function serviceStart(type: string): boolean {
       service.work(null);
       return true;
     }
-    service.intervelInstance = setInterval(() => {
+    service.intervalInstance = setInterval(() => {
         service.work(null);
     }, service.interval*1000);
     return true;
@@ -210,9 +222,9 @@ export function serviceStop(type: string): boolean {
     const service: ServicesConfig = services[type];
     if (!service) return false;
     console.log(global.color('green','[Service]\t'),"Stop service: "+global.color('cyan',type));
-    if (service.intervelInstance) {
-        clearInterval(service.intervelInstance);
-        service.intervelInstance = null;
+    if (service.intervalInstance) {
+        clearInterval(service.intervalInstance);
+        service.intervalInstance = null;
     }
     return true;
 }

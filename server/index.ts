@@ -12,7 +12,7 @@ global.log = console.log;
 import { GeminiService } from './services/gemini.service';
 import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
-import { TTSService } from './services/tts.service';
+import { TTSService, voiceSettings } from './services/tts.service';
 import settings from "./config/index";
 import { getCommandConfig, setGeminiInstance, serviceStart, saveBehaiviorsBuild, buildInstruction, behaiviorText } from "./config/commands";
 
@@ -81,6 +81,59 @@ app.post('/behaivior', (req, res) => {
     }
 });
 
+// Test SoX Endpoint
+app.get('/test-sox', async (req, res) => {
+    if (!fs.existsSync('test.wav')) {
+        return res.status(404).send("test.wav not found in server root. Please place a wav file there.");
+    }
+    
+    // We use a temporary output file for the test
+    const outputPath = 'test_sox_out.wav';
+    
+    // Construct SoX command manually for the test
+    const soxPath = path.resolve(__dirname, 'tools/sox/sox.exe');
+    if (!fs.existsSync(soxPath)) {
+        return res.status(500).send("SoX not found at " + soxPath);
+    }
+
+    const { spawn } = require('child_process');
+    
+    // Allow overriding params via query: /test-sox?settings=pitch%20-300
+    const soxParamsRaw = (req.query.settings as string) || settings.SOX_PARAMS;
+
+    // SoX speed is inverse of Piper length_scale
+    const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
+
+    const params = soxParamsRaw
+        .replace('[s]', soxSpeed) 
+        .split(' ')
+        .filter(x => x.length > 0);
+    const args = [
+        'test.wav',
+        outputPath,
+        ...params
+    ];
+
+    try {
+        const sox = spawn(soxPath, args);
+        
+        sox.stderr.on('data', (data:any) => console.log(`[SoX Test] ${data}`));
+        
+        sox.on('close', (code:number) => {
+             if (code === 0) {
+                 res.download(outputPath, (err) => {
+                     // Cleanup
+                     try{ fs.unlinkSync(outputPath); }catch(e){}
+                 });
+             } else {
+                 res.status(500).send("SoX failed with code " + code);
+             }
+        });
+    } catch (e:any) {
+        res.status(500).send(e.toString());
+    }
+});
+
 
 // --- GLOBAL STATE ---
 let isGeminiActive = false;
@@ -124,6 +177,12 @@ videoService.on('frame', (buffer) => {
 });
 
 audioService.on('audio', (buffer) => {
+    // Prevent self-hearing: Do not capture audio while TTS 'SAY' is active (outputting to speakers)
+    // WHISPER uses headphones/internal routing so it might be fine, or we can block that too if needed.
+    if (ttsService.isSaying) {
+        return;
+    }
+
     if (isGeminiActive && isGeminiAudioActive) {
         geminiService.sendAudioChunk(buffer);
     }
@@ -264,4 +323,4 @@ server.listen(PORT, () => {
 
 serviceStart('begin');
 
-//TTSService.getInstance().genWav("пінг", "ping.wav");
+//TTSService.getInstance().genWav("Тестуємо голос. Тестуємо звук", "test.wav");

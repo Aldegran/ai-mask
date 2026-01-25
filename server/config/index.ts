@@ -14,7 +14,10 @@ const settings = {
     CAMERA_HEIGHT: 480,
     TTS_FOR: "SAY",
     ENABLE_CLIENT_MIC_MONITORING: false, 
+    USE_VOICE_CHANGER: true,
+    SOX_PARAMS: "pitch -50 echo 0.8 0.8 60 0.4 reverb 10 100 speed [s]",
     DELIM: "\n\nНижче буде твоя історія попередніх взаємодій з оточуючим світом. Використовуй цю інформацію, щоб надати більш контекстуальні відповіді.\n\n",
+    MAX_TOKENS: 900000,
 };
 
 export default settings; 
