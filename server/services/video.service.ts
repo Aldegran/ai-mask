@@ -52,7 +52,18 @@ export class VideoService extends EventEmitter {
         // Helper to start the actual capture process
         const startProcess = (deviceName: string) => {
             console.log(global.color('green','[Video]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
-            const args = [
+            
+            const isLinux = process.platform === 'linux';
+            const args = isLinux ? [
+                '-f', 'v4l2',
+                '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
+                '-i', deviceName,
+                '-r', settings.CAMERA_FPS.toString(),
+                '-c:v', 'mjpeg',
+                '-q:v', '10',
+                '-f', 'image2pipe',
+                'pipe:1'
+            ] : [
                 '-f', 'dshow',
                 '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
                 '-rtbufsize', '100M',

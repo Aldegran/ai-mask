@@ -30,7 +30,15 @@ export class AudioService extends EventEmitter {
         // Helper to start process
         const startProcess = (deviceName: string) => {
             console.log(global.color('green','[Audio]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
-            const args = [
+            
+            const args = settings.IS_LINUX ? [
+                '-f', 'alsa',
+                '-i', deviceName, 
+                '-ar', '16000',
+                '-ac', '1',
+                '-f', 's16le',
+                'pipe:1'
+            ] : [
                 '-f', 'dshow',
                 '-audio_buffer_size', '10',
                 '-i', `audio=${deviceName}`,

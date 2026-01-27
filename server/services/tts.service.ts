@@ -84,7 +84,7 @@ export class TTSService extends EventEmitter {
             }
 
             const piperDir = path.resolve(__dirname, '../tools/piper');
-            const piperExe = path.join(piperDir, 'piper.exe');
+            const piperExe = path.join(piperDir, settings.IS_LINUX ? 'piper' : 'piper.exe');
             const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
             
             // Ensure filename is absolute or relative to piperDir if desired, 
@@ -148,9 +148,9 @@ export class TTSService extends EventEmitter {
             }
 
             const piperDir = path.resolve(__dirname, '../tools/piper'); 
-            const piperExe = path.join(piperDir, 'piper.exe'); 
+            const piperExe = path.join(piperDir, settings.IS_LINUX ? 'piper' : 'piper.exe');
             const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
-            const soxExe = path.resolve(__dirname, '../tools/sox/sox.exe');
+            const soxExe = settings.IS_LINUX ? '/usr/bin/sox' : path.resolve(__dirname, '../tools/sox/sox.exe');
 
             if (!fs.existsSync(piperExe)) {
                 console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);

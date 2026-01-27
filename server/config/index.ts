@@ -21,6 +21,7 @@ import { config } from 'dotenv';
 config();
 
 const settings = {
+    IS_LINUX: process.platform === 'linux',
     PORT: process.env.PORT || 5000,
     API_KEY: process.env.GEMINI_API_KEY || '',
     VIDEO_DEVICE: process.env.CAMERA_NAME+'',

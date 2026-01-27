@@ -91,7 +91,7 @@ app.get('/test-sox', async (req, res) => {
     const outputPath = 'test_sox_out.wav';
     
     // Construct SoX command manually for the test
-    const soxPath = path.resolve(__dirname, 'tools/sox/sox.exe');
+    const soxPath = settings.IS_LINUX ? '/usr/bin/sox' : path.resolve(__dirname, 'tools/sox/sox.exe');
     if (!fs.existsSync(soxPath)) {
         return res.status(500).send("SoX not found at " + soxPath);
     }
