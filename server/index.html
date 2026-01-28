@@ -416,6 +416,43 @@
                     startBtn.disabled = false;
                 }
             };
+
+            // KEYBOARD INPUT FORWARDING
+            document.addEventListener('keydown', (e) => {
+                // Ignore if typing in text inputs (chat, behavior, etc.)
+                if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+                if (!geminiControlSocket || geminiControlSocket.readyState !== WebSocket.OPEN) return;
+                
+                if (e.repeat) return; 
+
+                const validKeys = [' ', 'Enter', '1', '2', '3', '4'];
+                if (validKeys.includes(e.key)) {
+                    if(e.key === ' ') e.preventDefault(); 
+                    console.log("Key sent: " + e.key);
+                    geminiControlSocket.send(JSON.stringify({
+                        type: 'keyboard_event',
+                        data: { key: e.key, action: 'press' }
+                    }));
+                }
+            });
+
+            document.addEventListener('keyup', (e) => {
+                 // Ignore if typing in text inputs
+                if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+                if (!geminiControlSocket || geminiControlSocket.readyState !== WebSocket.OPEN) return;
+
+                const validKeys = [' ', 'Enter', '1', '2', '3', '4'];
+                if (validKeys.includes(e.key)) {
+                    if(e.key === ' ') e.preventDefault();
+                    
+                    geminiControlSocket.send(JSON.stringify({
+                        type: 'keyboard_event',
+                        data: { key: e.key, action: 'release' }
+                    }));
+                }
+            });
         </script>
     </body>
 </html>

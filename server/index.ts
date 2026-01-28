@@ -1,4 +1,3 @@
-process.env.MIC_NAME = 'plughw:2,0';
 import GlobalThis from './global';
 declare const global: GlobalThis;
 import express from "express";
@@ -202,36 +201,15 @@ videoService.on('frame', (buffer) => {
     }
 });
 
-let audioBufferAccumulator: Buffer = Buffer.alloc(0);
-let audioChunkCount = 0;
-const CHUNK_SIZE_THRESHOLD = 4000; 
-
 audioService.on('audio', (buffer) => {
-    // Accumulate buffer (assuming WAV stream from ffmpeg now)
-    audioBufferAccumulator = Buffer.concat([audioBufferAccumulator, buffer]);
-    
-    // Only process if we have enough data
-    if (audioBufferAccumulator.length < CHUNK_SIZE_THRESHOLD) {
-        return;
-    }
-
-    // Extract chunk to send
-    const chunkToSend = audioBufferAccumulator;
-    audioBufferAccumulator = Buffer.alloc(0);
-
-    // Prevent self-hearing
+    // Prevent self-hearing: Do not capture audio while TTS 'SAY' is active (outputting to speakers)
+    // WHISPER uses headphones/internal routing so it might be fine, or we can block that too if needed.
     if (ttsService.isSaying) {
         return;
     }
 
     if (isGeminiActive && audioService.isGeminiAudioActive) {
-        audioChunkCount++;
-        if (audioChunkCount % 5 === 0) {
-            console.log(global.color('blue', '[Audio]\t'), `Sending ${chunkToSend.length} bytes to Gemini.`);
-        }
-        // Send as PCM s16le, because Gemini streaming usually expects raw PCM or very specific WAV
-        // To be safe, we will revert to PCM s16le sending 
-        geminiService.sendAudioChunk(chunkToSend, 'audio/pcm');
+        geminiService.sendAudioChunk(buffer);
     }
 });
 
@@ -346,6 +324,12 @@ if (pathname === '/monitor/tts') {
                     } else {
                         // Optionally auto-enable or warn
                         ws.send(JSON.stringify({ type: 'log', text: 'Error: Enable Gemini first' }));
+                    }
+                }
+
+                if (msg.type === 'keyboard_event') {
+                    if (msg.data && msg.data.key && msg.data.action) {
+                        InputService.getInstance().handleWebInput(msg.data.key, msg.data.action);
                     }
                 }
             } catch (err) {

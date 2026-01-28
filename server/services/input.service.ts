@@ -2,7 +2,7 @@ import GlobalThis from '../global';
 declare const global: GlobalThis;
 import fs from 'fs';
 import { keyboardActions } from '../config/commands';
-
+import settings from "../config/index";
 
 interface InputEvent {
     time: { tv_sec: number; tv_usec: number };
@@ -32,6 +32,11 @@ export class InputService {
         if (this.isScanning) return;
         this.isScanning = true;
 
+        if (!settings.IS_LINUX) {
+             console.log(global.color('yellow',`[Input]\t`),'Not Linux detected. BT/USB direct input disabled. Waiting for Web Input.');
+             return;
+        }
+
         //console.log("InputService: Scanning for input devices...");
         const devicePaths = await this.findAllDevicePaths("VR BOX"); // Or ST17H26
         
@@ -45,6 +50,36 @@ export class InputService {
                 this.isScanning = false;
                 this.init();
             }, 3000);
+        }
+    }
+
+    public handleWebInput(key: string, action: 'press' | 'release') {
+        let keyName = '';
+        const act = action; // 'press' or 'release'
+
+        /* 
+           Web Mapping:
+           Space -> BOTTOM
+           Enter -> TOP
+           1 -> A
+           2 -> C
+           3 -> B
+           4 -> D
+        */
+
+        if (key === ' ' || key === 'Spacebar') keyName = 'BOTTOM';
+        else if (key === 'Enter') keyName = 'TOP';
+        else if (key === '1') keyName = 'A';
+        else if (key === '2') keyName = 'C';
+        else if (key === '3') keyName = 'B';
+        else if (key === '4') keyName = 'D';
+
+        if (keyName && keyboardActions[keyName]) {
+             // Avoid spamming logs for repeating keys if needed, but for now log it
+             console.log(global.color('cyan',`[WebInput]\t`),`${keyName} [${act.toUpperCase()}]`);
+             if (keyboardActions[keyName][act]) {
+                 keyboardActions[keyName][act]();
+             }
         }
     }
 

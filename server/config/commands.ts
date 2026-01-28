@@ -221,10 +221,16 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
     },
     "TOP": {
         press: () => {
-            if (geminiService) geminiService.sendTextMessage("[OWNER_START]");
+            if (geminiService && audioService) {
+              audioService.isGeminiAudioActive = true;
+              geminiService.sendTextMessage("[OWNER_START]");
+            }
         },
         release: () => {
-            if (geminiService) geminiService.sendTextMessage("[OWNER_STOP]");
+            if (geminiService && audioService) {
+              geminiService.sendTextMessage("[OWNER_STOP]");
+              audioService.isGeminiAudioActive = false;
+            }
         }
     },
     "A": {
