@@ -1,3 +1,4 @@
+process.env.MIC_NAME = 'plughw:2,0';
 import GlobalThis from './global';
 declare const global: GlobalThis;
 import express from "express";
@@ -13,10 +14,24 @@ import { GeminiService } from './services/gemini.service';
 import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
 import { TTSService, voiceSettings } from './services/tts.service';
+import { InputService } from './services/input.service';
 import settings from "./config/index";
-import { getCommandConfig, setGeminiInstance, serviceStart, saveBehaiviorsBuild, buildInstruction, behaiviorText } from "./config/commands";
+import { 
+    getCommandConfig, 
+    setGeminiInstance, 
+    setAudioInstance,
+    setVideoInstance,
+    setTTSInstance,
+    serviceStart, 
+    saveBehaiviorsBuild, 
+    buildInstruction, 
+    behaiviorText 
+} from "./config/commands";
 
 dotenv.config();
+
+// Init Input Service (Bluetooth Remote)
+InputService.getInstance();
 
 const app = express();
 const server = http.createServer(app);
@@ -137,14 +152,25 @@ app.get('/test-sox', async (req, res) => {
 
 // --- GLOBAL STATE ---
 let isGeminiActive = false;
-let isGeminiAudioActive = true; 
+// let isGeminiAudioActive = true; // Moved to AudioService
 
 // --- SERVICE INITIALIZATION ---
 const videoService = VideoService.getInstance();
+setVideoInstance(videoService);
+
 const audioService = AudioService.getInstance();
+setAudioInstance(audioService);
+
 const geminiService = GeminiService.getInstance();
 setGeminiInstance(geminiService);
+
 const ttsService = TTSService.getInstance();
+setTTSInstance(ttsService);
+
+// Auto-start Gemini for headless usage
+/*console.log(global.color('green','[System]\t'), 'Auto-starting Gemini connection...');
+isGeminiActive = true;
+geminiService.connect();*/
 
 videoService.startVideoCapture();
 audioService.startAudioCapture();
@@ -176,15 +202,36 @@ videoService.on('frame', (buffer) => {
     }
 });
 
+let audioBufferAccumulator: Buffer = Buffer.alloc(0);
+let audioChunkCount = 0;
+const CHUNK_SIZE_THRESHOLD = 4000; 
+
 audioService.on('audio', (buffer) => {
-    // Prevent self-hearing: Do not capture audio while TTS 'SAY' is active (outputting to speakers)
-    // WHISPER uses headphones/internal routing so it might be fine, or we can block that too if needed.
+    // Accumulate buffer (assuming WAV stream from ffmpeg now)
+    audioBufferAccumulator = Buffer.concat([audioBufferAccumulator, buffer]);
+    
+    // Only process if we have enough data
+    if (audioBufferAccumulator.length < CHUNK_SIZE_THRESHOLD) {
+        return;
+    }
+
+    // Extract chunk to send
+    const chunkToSend = audioBufferAccumulator;
+    audioBufferAccumulator = Buffer.alloc(0);
+
+    // Prevent self-hearing
     if (ttsService.isSaying) {
         return;
     }
 
-    if (isGeminiActive && isGeminiAudioActive) {
-        geminiService.sendAudioChunk(buffer);
+    if (isGeminiActive && audioService.isGeminiAudioActive) {
+        audioChunkCount++;
+        if (audioChunkCount % 5 === 0) {
+            console.log(global.color('blue', '[Audio]\t'), `Sending ${chunkToSend.length} bytes to Gemini.`);
+        }
+        // Send as PCM s16le, because Gemini streaming usually expects raw PCM or very specific WAV
+        // To be safe, we will revert to PCM s16le sending 
+        geminiService.sendAudioChunk(chunkToSend, 'audio/pcm');
     }
 });
 
@@ -289,8 +336,8 @@ if (pathname === '/monitor/tts') {
                 }
 
                 if (msg.type === 'audio_control') {
-                    isGeminiAudioActive = !!msg.enabled;
-                    console.log(global.color('blue', '[Control]\t'),`Gemini Audio: ${isGeminiAudioActive ? 'ON' : 'OFF'}`);
+                    audioService.isGeminiAudioActive = !!msg.enabled;
+                    console.log(global.color('blue', '[Control]\t'),`Gemini Audio: ${audioService.isGeminiAudioActive ? 'ON' : 'OFF'}`);
                 }
 
                 if (msg.type === 'gemini_chat') {
@@ -317,6 +364,30 @@ if (pathname === '/monitor/tts') {
 });
 
 const PORT = settings.PORT || 5000;
+
+// --- GRACEFUL SHUTDOWN ---
+const shutdown = () => {
+    console.log('\n'+global.color('red', '[System]\t'), 'Shutting down...');
+    
+    // Stop Services
+    try { if (geminiService) geminiService.disconnect(); } catch(e){}
+    try { if (videoService) videoService.stopVideoCapture(); } catch(e){}
+    
+    // Kill external processes (safe cleanup)
+    const { exec } = require('child_process');
+    if (settings.IS_LINUX) {
+        // Kill only our specific children if possible, but pkill is safer for detached streams
+        exec('pkill -f "rpicam-vid"');
+        // Avoid killing all ffmpegs if user is doing other things, but here we likely own them
+        exec('pkill -f "ffmpeg"'); 
+    }
+    
+    setTimeout(() => process.exit(0), 500);
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
 server.listen(PORT, () => {
     console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
 });
@@ -324,3 +395,5 @@ server.listen(PORT, () => {
 serviceStart('begin');
 
 //TTSService.getInstance().genWav("Тестуємо голос. Тестуємо звук", "test.wav");
+
+//fuser -k 5000/tcp || lsof -ti:5000 | xargs -r kill -9

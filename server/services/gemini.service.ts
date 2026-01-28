@@ -219,14 +219,14 @@ export class GeminiService extends EventEmitter {
         this.socket.send(JSON.stringify(msg));
     }
 
-    public sendAudioChunk(c: Buffer) {
+    public sendAudioChunk(c: Buffer, mimeType: string = "audio/pcm") {
         if (!this.isConnected || !this.socket || this.restartStage) return;
 
         const msg = {
             realtime_input: {
                 media_chunks: [
                     {
-                        mime_type: "audio/pcm",
+                        mime_type: mimeType,
                         data: c.toString('base64')
                     }
                 ]
@@ -306,6 +306,10 @@ export class GeminiService extends EventEmitter {
             }*/
            //console.log(global.color('gray', `[Gemini Raw]: ${str}`));
             const msg = JSON.parse(str);
+            if (!msg.usageMetadata) { // Log significant non-usage messages (like audio triggers or setup)
+                 // console.log(global.color('gray', '[Gemini Msg]\t'), JSON.stringify(msg).substring(0, 200));
+            }
+
             if(msg.usageMetadata) {
                 if(msg.usageMetadata?.totalTokenCount){
                     this.usedTokens = msg.usageMetadata?.totalTokenCount;

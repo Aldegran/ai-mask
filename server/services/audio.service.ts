@@ -8,6 +8,7 @@ export class AudioService extends EventEmitter {
     private static instance: AudioService;
     private microphoneProcess: any;
     private isRunning: boolean = false;
+    public isGeminiAudioActive: boolean = true;
 
     private constructor() {
         super();
@@ -37,6 +38,7 @@ export class AudioService extends EventEmitter {
                 '-ar', '16000',
                 '-ac', '1',
                 '-f', 's16le',
+                '-filter:a', 'volume=5.0', // Boost volume 5x
                 'pipe:1'
             ] : [
                 '-f', 'dshow',
@@ -64,7 +66,7 @@ export class AudioService extends EventEmitter {
             });
         };
 
-        if (/^\d+$/.test(settings.AUDIO_DEVICE)) {
+        if (!settings.IS_LINUX && /^\d+$/.test(settings.AUDIO_DEVICE)) {
            // Resolve index to name
            const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
            let stderr = '';

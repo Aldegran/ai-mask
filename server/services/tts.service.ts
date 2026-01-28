@@ -256,7 +256,8 @@ export class TTSService extends EventEmitter {
                    // 4. Playback Logic
                    const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
 
-                   if (mode === 'default' && process.platform === 'win32') {
+                   // Play locally if mode is default (works on Linux and Windows if configured)
+                   if (mode === 'default') {
                         // Playback on Server Speakers
                         if (fs.existsSync(soxExe)) {
                             // Use SoX to play the raw memory buffer directly to speakers

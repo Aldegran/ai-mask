@@ -53,29 +53,33 @@ export class VideoService extends EventEmitter {
         const startProcess = (deviceName: string) => {
             console.log(global.color('green','[Video]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
             
-            const isLinux = process.platform === 'linux';
-            const args = isLinux ? [
-                '-f', 'v4l2',
-                '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
-                '-i', deviceName,
-                '-r', settings.CAMERA_FPS.toString(),
-                '-c:v', 'mjpeg',
-                '-q:v', '10',
-                '-f', 'image2pipe',
-                'pipe:1'
-            ] : [
-                '-f', 'dshow',
-                '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
-                '-rtbufsize', '100M',
-                '-i', `video=${deviceName}`,
-                '-r', settings.CAMERA_FPS.toString(),
-                '-c:v', 'mjpeg',
-                '-q:v', '10',
-                '-f', 'image2pipe',
-                'pipe:1'
-            ];
-
-            this.ffmpegProcess = spawn(ffmpegPath, args);
+            if (settings.IS_LINUX) {
+                // Raspberry Pi Camera using rpicam-vid (modern libcamera stack)
+                const args = [
+                    '-t', '0',
+                    '--width', settings.CAMERA_WIDTH.toString(),
+                    '--height', settings.CAMERA_HEIGHT.toString(),
+                    '--framerate', settings.CAMERA_FPS.toString(),
+                    '--codec', 'mjpeg',
+                    '-n',
+                    '-o', '-'
+                ];
+                
+                this.ffmpegProcess = spawn('rpicam-vid', args);
+            } else {
+                const args = [
+                    '-f', 'dshow',
+                    '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
+                    '-rtbufsize', '100M',
+                    '-i', `video=${deviceName}`,
+                    '-r', settings.CAMERA_FPS.toString(),
+                    '-c:v', 'mjpeg',
+                    '-q:v', '10',
+                    '-f', 'image2pipe',
+                    'pipe:1'
+                ];
+                this.ffmpegProcess = spawn(ffmpegPath, args);
+            }
 
             this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
                 this.handleData(chunk);
@@ -91,8 +95,8 @@ export class VideoService extends EventEmitter {
             });
         };
 
-        // If numeric index is provided, resolve it to a name first
-        if (/^\d+$/.test(settings.VIDEO_DEVICE)) {
+        // If numeric index is provided, resolve it to a name first (Windows Only)
+        if (!settings.IS_LINUX && /^\d+$/.test(settings.VIDEO_DEVICE)) {
             const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
             let stderr = '';
 
@@ -120,8 +124,10 @@ export class VideoService extends EventEmitter {
             });
         } else {
              // Direct name usage
-             // Still run list for logging purposes
-             const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+             // Still run list for logging purposes (Windows Only)
+             if (!settings.IS_LINUX) {
+                 const listProc = spawn(ffmpegPath, ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+             }
              //this.showListDevices(listProc);
              
              startProcess(settings.VIDEO_DEVICE);

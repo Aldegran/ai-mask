@@ -2,12 +2,27 @@ import GlobalThis from '../global';
 declare const global: GlobalThis;
 import settings from "./index";
 import type { GeminiService } from '../services/gemini.service';
+import type { AudioService } from '../services/audio.service';
+import type { VideoService } from '../services/video.service';
+import type { TTSService } from '../services/tts.service';
 import fs from 'fs';
 
 let geminiService: GeminiService | null = null;
+let audioService: AudioService | null = null;
+let videoService: VideoService | null = null;
+let ttsService: TTSService | null = null;
 
 export function setGeminiInstance(instance: GeminiService) {
     geminiService = instance;
+}
+export function setAudioInstance(instance: AudioService) {
+    audioService = instance;
+}
+export function setVideoInstance(instance: VideoService) {
+    videoService = instance;
+}
+export function setTTSInstance(instance: TTSService) {
+    ttsService = instance;
 }
 
 interface ServicesConfig {
@@ -189,6 +204,46 @@ export const commands: Record<string, CommandConfig> = {
         }
     }
 };
+
+interface KeyboardConfig {
+    press: () => void;
+    release: () => void;
+}
+
+export const keyboardActions: Record<string, KeyboardConfig> = {
+    "BOTTOM": {
+        press: () => {
+            if (audioService) audioService.isGeminiAudioActive = true;
+        },
+        release: () => {
+            if (audioService) audioService.isGeminiAudioActive = false;
+        }
+    },
+    "TOP": {
+        press: () => {
+            if (geminiService) geminiService.sendTextMessage("[OWNER_START]");
+        },
+        release: () => {
+            if (geminiService) geminiService.sendTextMessage("[OWNER_STOP]");
+        }
+    },
+    "A": {
+        press: () => {},
+        release: () => {}
+    },
+    "B": {
+        press: () => {},
+        release: () => {}
+    },
+    "C": {
+        press: () => {},
+        release: () => {}
+    },
+    "D": {
+        press: () => {},
+        release: () => {}
+    }
+}
 
 //////////////////////////////////
 
