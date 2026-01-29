@@ -235,6 +235,10 @@ export class GeminiService extends EventEmitter {
         this.socket.send(JSON.stringify(msg));
     }
 
+    public sendSilence() {
+        this.sendAudioChunk(Buffer.alloc(16000));
+    }
+
     public sendTextMessage(text: string) {
         if (!this.isConnected || !this.socket) return;
 
@@ -313,7 +317,8 @@ export class GeminiService extends EventEmitter {
             if(msg.usageMetadata) {
                 if(msg.usageMetadata?.totalTokenCount){
                     this.usedTokens = msg.usageMetadata?.totalTokenCount;
-                    console.log(global.color('cyan', `[Tokens]:\t`), `Left ${settings.MAX_TOKENS - this.usedTokens}`);
+                    const tokensLeft = settings.MAX_TOKENS - this.usedTokens;
+                    console.log(global.color('cyan', `[Tokens]:\t`), `Left ${(100-(tokensLeft*100/settings.MAX_TOKENS)).toFixed(1)}% ${tokensLeft}`);
                     if(this.usedTokens > settings.MAX_TOKENS && this.restartStage === 0){
                         console.log(global.color('yellow', '[Gemini]\t'),`Token limit reached, ${this.usedTokens}. Prepare reconnect.`);
                         this.restartStage = 1;

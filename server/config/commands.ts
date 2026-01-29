@@ -217,6 +217,8 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
         },
         release: () => {
             if (audioService) audioService.isGeminiAudioActive = false;
+            // Send silence to trigger VAD End-of-Turn immediately
+            if (geminiService) geminiService.sendSilence();
         }
     },
     "TOP": {
@@ -230,12 +232,22 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
             if (geminiService && audioService) {
               geminiService.sendTextMessage("[OWNER_STOP]");
               audioService.isGeminiAudioActive = false;
+              geminiService.sendSilence();
             }
         }
     },
     "A": {
-        press: () => {},
-        release: () => {}
+        press: () => {
+             // Voice Changer Passthrough Mode (Failsafe)
+             if (audioService) {
+                 audioService.enableVoiceChanger(true);
+             }
+        },
+        release: () => {
+             if (audioService) {
+                 audioService.enableVoiceChanger(false);
+             }
+        }
     },
     "B": {
         press: () => {},

@@ -196,7 +196,8 @@ videoService.on('frame', () => {
 // --- GLOBAL FORWARDING LOGIC ---
 // We wire the inputs to Gemini permanently here, but control flow via the flag.
 videoService.on('frame', (buffer) => {
-    if (isGeminiActive) {
+    // Only send video if Audio is active (Push-to-Talk logic) to save tokens
+    if (isGeminiActive && audioService.isGeminiAudioActive) {
         geminiService.sendVideoFrame(buffer);
     }
 });
@@ -238,10 +239,10 @@ wss.on('connection', (ws: WebSocket, req: any) => {
     
     // 2. AUDIO MONITOR
     if (pathname === '/monitor/audio') {
-        if (!settings.ENABLE_CLIENT_MIC_MONITORING) {
+        /*if (!settings.ENABLE_CLIENT_MIC_MONITORING) {
             ws.close();
             return;
-        }
+        }*/
 
         console.log(global.color('blue','[Client]\t'), 'Audio Monitor');
         

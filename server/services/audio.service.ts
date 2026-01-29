@@ -3,12 +3,17 @@ declare const global: GlobalThis;
 import { spawn } from 'child_process';
 import EventEmitter from 'events';
 import settings from '../config/index';
+import path from 'path';
+import { voiceSettings } from './tts.service';
 
 export class AudioService extends EventEmitter {
     private static instance: AudioService;
     private microphoneProcess: any;
     private isRunning: boolean = false;
-    public isGeminiAudioActive: boolean = true;
+    public isGeminiAudioActive: boolean = false;
+    
+    private soxProcess: any = null;
+    public isVoiceChangerActive: boolean = false;
 
     private constructor() {
         super();
@@ -53,7 +58,12 @@ export class AudioService extends EventEmitter {
             this.microphoneProcess = spawn(ffmpegPath, args);
 
             this.microphoneProcess.stdout.on('data', (chunk: Buffer) => {
-                this.emit('audio', chunk);
+                if (this.isVoiceChangerActive && this.soxProcess) {
+                     try { this.soxProcess.stdin.write(chunk); }
+                     catch(e) { this.emit('audio', chunk); }
+                } else {
+                    this.emit('audio', chunk);
+                }
             });
 
             this.microphoneProcess.stderr.on('data', (data: any) => {
@@ -103,8 +113,71 @@ export class AudioService extends EventEmitter {
 
     public stopMicrophone() {
         if (this.microphoneProcess) {
-            this.microphoneProcess.kill('SIGKILL');
+            try { this.microphoneProcess.kill('SIGKILL'); } catch(e){}
             this.isRunning = false;
+        }
+    }
+
+    public enableVoiceChanger(enable: boolean) {
+        if (enable && settings.USE_VOICE_CHANGER) {
+             if (this.isVoiceChangerActive) return;
+             console.log(global.color('blue', '[Audio]\t\t'), "Voice Changer: ON");
+             this.startSoxProcess();
+             this.isVoiceChangerActive = true;
+        } else {
+             if (!this.isVoiceChangerActive) return;
+             console.log(global.color('blue', '[Audio]\t\t'), "Voice Changer: OFF");
+             this.isVoiceChangerActive = false;
+             if (this.soxProcess) {
+                 try { this.soxProcess.kill(); } catch(e){}
+                 this.soxProcess = null;
+             }
+        }
+    }
+
+    private startSoxProcess() {
+        const soxExe = settings.IS_LINUX ? 'sox' : path.resolve(__dirname, '../tools/sox/sox.exe');
+        
+        // SoX Speed = 1 / Piper Length Scale
+        const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
+        
+        const effectArgs = settings.SOX_ECHO_PARAMS
+            .split(' ')
+            .filter(x => x.length > 0);
+
+        // FFmpeg output is 16000Hz s16le mono
+        // Added --buffer to reduce glitching
+        const rawFormatArgs = ['--buffer', '2048', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'];
+        
+        try {
+            this.soxProcess = spawn(soxExe, [
+                ...rawFormatArgs, '-', 
+                ...rawFormatArgs, '-',
+                ...effectArgs
+            ]);
+            
+            this.soxProcess.stdout.on('data', (chunk: Buffer) => {
+                 this.emit('audio', chunk); // Emit processed audio
+            });
+            
+            this.soxProcess.stderr.on('data', (d:any) => {
+                console.log(global.color('red','[SoX Mic]\t'), "Error: "+d.toString());
+            });
+            
+            this.soxProcess.on('close', (code: number) => {
+                 if( code !== null ) {
+                    console.log(global.color('red','[SoX Mic]\t'), "Process exited with code", code);
+                 }
+                 this.isVoiceChangerActive = false;
+                 this.soxProcess = null;
+            });
+            
+            this.soxProcess.on('error', (err:any) => {
+                console.error("SoX Mic Error", err);
+                this.isVoiceChangerActive = false;
+            });
+        } catch (e) {
+             console.log(global.color('red','[SoX Mic]\t'), "Failed to start SoX for Mic", e);
         }
     }
 }
