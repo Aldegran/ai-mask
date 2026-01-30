@@ -123,3 +123,55 @@ sudo apt-get install -y build-essential git
 4.  Скопируйте туда папку `server`.
 5.  Запустите `npm install`.
 6.  Попробуем запустить тестовые скрипты.
+
+---
+
+## Дополнительно: Настройка нескольких Wi-Fi сетей (NetworkManager)
+
+Ваша система работает на современной версии OS (Debian 12/13), которая использует **NetworkManager** вместо старого `wpa_supplicant.conf`. Управление сетями происходит через команду `nmcli`.
+
+Чтобы добавить несколько сетей и настроить приоритет (какую сеть пробовать первой), выполните следующие команды в терминале.
+
+### 1. Просмотр текущих подключений
+```bash
+nmcli connection show
+```
+
+### 2. Изменение приоритета существующей сети
+Чем **выше** число, тем выше приоритет (по умолчанию 0).
+Если вы уже подключены к основной сети, повысьте её приоритет, чтобы она всегда выбиралась первой:
+```bash
+# Замените "MYSTERIOUS-NEW-USB" на имя вашего соединения из команды выше
+sudo nmcli connection modify "NAME but not SSID" connection.autoconnect-priority 100
+```
+
+### 3. Добавление резервной сети (например, телефона)
+Добавьте новую сеть и сразу укажите ей приоритет пониже (например, 50).
+```bash
+# Синтаксис: nmcli dev wifi connect "ИМЯ_WIFI" password "ПАРОЛЬ" name "ИМЯ_ПРОФИЛЯ"
+sudo nmcli dev wifi connect "SSID" password "PAS" name "NAME"
+
+# Установка приоритета для новой сети
+sudo nmcli connection modify "NAME" connection.autoconnect-priority 70 
+```
+
+Теперь, если основная сеть (приоритет 100) недоступна, Raspberry Pi автоматически подключится к мобильной (приоритет 50).
+
+### Полезные команды
+*   `nmcli device wifi list` — показать доступные Wi-Fi сети вокруг.
+*   `nmcli connection up "MobileInternet"` — принудительно попробовать подключиться к профилю "MobileInternet".
+*   **Подключение по MAC-адресу (BSSID) — Надежный способ:**
+    Если простая команда выдает ошибку "No network found", лучше создать профиль вручную. Это работает стабильнее.
+    ```bash
+    # 1. Создаем профиль
+    sudo nmcli con add type wifi ifname wlan0 con-name "NAME" ssid "SSID"
+    
+    # 2. Указываем пароль
+    sudo nmcli con modify "NAME" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "PASS"
+    
+    # 3. Жестко привязываем к MAC-адресу (BSSID)
+    sudo nmcli con modify "NAME" wifi.bssid "E8:48:B8:42:47:AE"
+    
+    # 4. Включаем
+    sudo nmcli con up "NAME"
+    ```

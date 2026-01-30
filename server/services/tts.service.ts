@@ -62,8 +62,7 @@ export class TTSService extends EventEmitter {
         const text = this.queues[type].shift();
 
         if (text) {
-            const filename = `${type.toLowerCase()}_${Date.now()}`; // say_123.wav or whisper_123.wav
-            await this.synthesizeAndPlay(text, filename);
+            await this.synthesizeAndPlay(text, type);
         }
 
         this.processing[type] = false;
@@ -141,7 +140,7 @@ export class TTSService extends EventEmitter {
      * Synthesizes speech from text and emits an 'audio' event with the WAV buffer.
      * Internal usage by processQueue.
      */
-    private async synthesizeAndPlay(text: string, filename: string): Promise<Buffer | null> {
+    private async synthesizeAndPlay(text: string, type: string): Promise<Buffer | null> {
         return new Promise((resolve, reject) => {
             if (!text || text.trim().length === 0) {
                 return resolve(null);
@@ -233,50 +232,61 @@ export class TTSService extends EventEmitter {
                        return resolve(null);
                    }
 
-                   // Create WAV Header for Client/Browser Compatibility (RAW -> WAV)
-                   // Browser needs a container to play the stream via AudioContext or <audio>
-                   const wavHeader = Buffer.alloc(44);
-                   wavHeader.write('RIFF', 0);
-                   wavHeader.writeUInt32LE(36 + audioBuffer.length, 4); // ChunkSize
-                   wavHeader.write('WAVE', 8);
-                   wavHeader.write('fmt ', 12);
-                   wavHeader.writeUInt32LE(16, 16); // Subchunk1Size
-                   wavHeader.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
-                   wavHeader.writeUInt16LE(1, 22);  // NumChannels (1 = Mono)
-                   wavHeader.writeUInt32LE(22050, 24); // SampleRate
-                   wavHeader.writeUInt32LE(22050 * 1 * 16 / 8, 28); // ByteRate
-                   wavHeader.writeUInt16LE(1 * 16 / 8, 32); // BlockAlign
-                   wavHeader.writeUInt16LE(16, 34); // BitsPerSample
-                   wavHeader.write('data', 36);
-                   wavHeader.writeUInt32LE(audioBuffer.length, 40); // Subchunk2Size
-
-                   const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
-                   this.emit('audio', wavBuffer); // Send WAV to Gemini & Web
-
                    // 4. Playback Logic
                    const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
 
-                   // Play locally if mode is default (works on Linux and Windows if configured)
-                   if (mode === 'default') {
-                        // Playback on Server Speakers
+                   if (mode === 'web') {
+                       // Create WAV Header for Client/Browser Compatibility (RAW -> WAV)
+                       const wavHeader = Buffer.alloc(44);
+                       wavHeader.write('RIFF', 0);
+                       wavHeader.writeUInt32LE(36 + audioBuffer.length, 4); // ChunkSize
+                       wavHeader.write('WAVE', 8);
+                       wavHeader.write('fmt ', 12);
+                       wavHeader.writeUInt32LE(16, 16); // Subchunk1Size
+                       wavHeader.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
+                       wavHeader.writeUInt16LE(1, 22);  // NumChannels (1 = Mono)
+                       wavHeader.writeUInt32LE(22050, 24); // SampleRate
+                       wavHeader.writeUInt32LE(22050 * 1 * 16 / 8, 28); // ByteRate
+                       wavHeader.writeUInt16LE(1 * 16 / 8, 32); // BlockAlign
+                       wavHeader.writeUInt16LE(16, 34); // BitsPerSample
+                       wavHeader.write('data', 36);
+                       wavHeader.writeUInt32LE(audioBuffer.length, 40); // Subchunk2Size
+
+                       const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+                       
+                       // Only emit to socket/web if in web mode
+                       this.emit('audio', wavBuffer); 
+                       
+                       // Web Mode Simulation (Virtual Delay)
+                       const bytesPerSecond = 44100; // 22050 * 2
+                       const durationMs = (audioBuffer.length / bytesPerSecond) * 1000;
+                       setTimeout(() => resolve(audioBuffer), durationMs);
+                   } else {
+                        // Local playback mode (SAY -> PI, WHISPER -> EXT)
+                        let device = 'default';
+                        if (type === 'SAY') {
+                            device = process.env.PI_SPEAKER_NAME || 'hw:0,0';
+                        } else if (type === 'WHISPER') {
+                            device = process.env.EXT_SPEAKER_NAME || 'hw:3,0';
+                        }
+
                         if (fs.existsSync(soxExe)) {
-                            // Use SoX to play the raw memory buffer directly to speakers
-                            const player = spawn(soxExe, [...rawFormatArgs, '-', '-d', '-q']);
+                            // Use SoX to play the raw memory buffer directly to the selected speaker
+                            // Output format for ALSA device: -t alsa <device>
+                            const driver = settings.IS_LINUX ? 'alsa' : 'waveaudio';
+                            const player = spawn(soxExe, [...rawFormatArgs, '-', '-t', driver, device, '-q']);
                             player.stdin.write(audioBuffer);
                             player.stdin.end();
                             
                             player.on('close', () => resolve(audioBuffer));
-                            player.on('error', () => resolve(audioBuffer)); // non-blocking error
+                            player.on('error', (err) => {
+                                console.error("[TTS] Local playback error:", err);
+                                resolve(audioBuffer);
+                            });
                         } else {
-                            // Fallback impossible for RAw without conversion
-                            console.log(global.color('red',"[TTS]\t"), "SoX missing for playback of raw stream.");
+                            console.log(global.color('red',"[TTS]\t"), "SoX missing for local playback.");
                             resolve(audioBuffer);
                         }
-                   } else {
-                       // Web Mode Simulation (Virtual Delay)
-                        const bytesPerSecond = 44100; // 22050 * 2
-                        const durationMs = (audioBuffer.length / bytesPerSecond) * 1000;
-                        setTimeout(() => resolve(audioBuffer), durationMs);
                    }
                 });
 

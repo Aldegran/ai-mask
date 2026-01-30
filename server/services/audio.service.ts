@@ -137,7 +137,10 @@ export class AudioService extends EventEmitter {
 
     private startSoxProcess() {
         const soxExe = settings.IS_LINUX ? 'sox' : path.resolve(__dirname, '../tools/sox/sox.exe');
-        
+        const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
+        const device = process.env.PI_SPEAKER_NAME || 'default';
+        const driver = settings.IS_LINUX ? 'alsa' : 'waveaudio';
+
         // SoX Speed = 1 / Piper Length Scale
         const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
         
@@ -150,15 +153,23 @@ export class AudioService extends EventEmitter {
         const rawFormatArgs = ['--buffer', '2048', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'];
         
         try {
+            // If mode is NOT web, we output directly to the speakers (local monitor/mask mode)
+            // If mode IS web, we output to stdout to be emitted to Gemini/Browser
+            const outputArgs = (mode === 'web') 
+                ? ['--buffer', '2048', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'] 
+                : ['-t', driver, device];
+
             this.soxProcess = spawn(soxExe, [
                 ...rawFormatArgs, '-', 
-                ...rawFormatArgs, '-',
+                ...outputArgs,
                 ...effectArgs
             ]);
-            
-            this.soxProcess.stdout.on('data', (chunk: Buffer) => {
-                 this.emit('audio', chunk); // Emit processed audio
-            });
+
+            if (mode === 'web') {
+                this.soxProcess.stdout.on('data', (chunk: Buffer) => {
+                     this.emit('audio', chunk); // Emit processed audio to Gemini/Web
+                });
+            }
             
             this.soxProcess.stderr.on('data', (d:any) => {
                 console.log(global.color('red','[SoX Mic]\t'), "Error: "+d.toString());
