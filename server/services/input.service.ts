@@ -16,6 +16,7 @@ export class InputService {
     private streams: fs.ReadStream[] = [];
     private readonly EVENT_SIZE = 24; 
     private isScanning = false;
+    private isStopped = false; // Prevent reconnects on shutdown
 
     private constructor() {
         this.init();
@@ -28,8 +29,21 @@ export class InputService {
         return InputService.instance;
     }
 
+    // Explicitly clean up resources
+    public stop() {
+        this.isStopped = true;
+        this.isScanning = false;
+        
+        // Close all active streams
+        this.streams.forEach(s => {
+             try { s.destroy(); } catch(e){}
+        });
+        this.streams = [];
+        console.log(global.color('yellow',`[Input]\t`),'Service stopped.');
+    }
+
     private async init() {
-        if (this.isScanning) return;
+        if (this.isScanning || this.isStopped) return;
         this.isScanning = true;
 
         if (!settings.IS_LINUX) {
@@ -90,6 +104,9 @@ export class InputService {
             const devices = devicesInfo.split('\n\n');
 
             for (const device of devices) {
+                // Skip mouse devices to save resources/threads
+                if (device.includes("Mouse")) continue;
+
                 if (device.includes(searchName) || device.includes('ST17H26')) {
                     const handlerMatch = device.match(/H: Handlers=.*(event\d+)/);
                     if (handlerMatch && handlerMatch[1]) {
@@ -151,7 +168,7 @@ export class InputService {
         }
         
         // If all devices lost, restart scanning immediately
-        if (this.streams.length === 0 && !this.isScanning) {
+        if (this.streams.length === 0 && !this.isScanning && !this.isStopped) {
             console.log(global.color('yellow',`[KeyboardBT]\t`),'Connection lost. Reconnecting...');
             this.init();
         }

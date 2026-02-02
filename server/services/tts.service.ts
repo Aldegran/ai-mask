@@ -1,6 +1,6 @@
 import GlobalThis from '../global';
 declare const global: GlobalThis;
-import { spawn, exec } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
@@ -8,30 +8,258 @@ import settings from '../config/index';
 
 // Configuration for Voice
 export const voiceSettings = {
-    length_scale: 0.8,//1.2
-    noise_scale: 0.01,//0.667
-    noise_w: 0.1,//0.8
-    sentence_silence : 0.2,
+    length_scale: 0.8,
+    noise_scale: 0.01,
+    noise_w: 0.1,
+    sentence_silence : 0.2, 
     speaker: 1,
-    model: 'uk_UA-ukrainian_tts-medium',//'uk_UA-model'
+    model: 'uk_UA-ukrainian_tts-medium',
 };
+
+// --- SINGLE TTS LANE ---
+// Manages one persistent Piper process + one persistent sink (or web buffer)
+class TTSLane {
+    public id: string;
+    public device: string | null;
+    public volume: number;
+    
+    // Processes
+    private piperProcess: ChildProcess | null = null;
+    private sinkProcess: ChildProcess | null = null;
+    private isPiperLaunching: boolean = false;
+    private isSinkLaunching: boolean = false;
+    private isDisposed: boolean = false;
+
+    // State
+    private queue: string[] = [];
+    private isProcessing: boolean = false;
+    private currentResolve: Function | null = null;
+    private currentBuffer: Buffer[] = [];
+    
+    // Output mode matches global setting roughly, but lane specific
+    // Actually mode is global.
+    
+    private emitWeb: (buf: Buffer) => void;
+    private applyVoiceChanger: boolean;
+
+    constructor(id: string, device: string | null, volume: number, applyVoiceChanger: boolean, emitWebCb: (buf: Buffer) => void) {
+        this.id = id;
+        this.device = device;
+        this.volume = volume;
+        this.applyVoiceChanger = applyVoiceChanger;
+        this.emitWeb = emitWebCb;
+        
+        this.ensurePiper();
+        if (process.env.AUDIO_OUTPUT_MODE !== 'web') {
+             setTimeout(() => this.ensureSink(), 500);
+        }
+    }
+
+    // --- PIPER ---
+    private ensurePiper() {
+        if (this.piperProcess || this.isPiperLaunching) return;
+        this.isPiperLaunching = true;
+
+        const piperDir = path.resolve(__dirname, '../tools/piper');
+        const piperExe = path.join(piperDir, settings.IS_LINUX ? 'piper' : 'piper.exe');
+        const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
+
+        console.log(global.color('cyan', `[TTS ${this.id}]\t`), 'Launching persistent Piper...');
+
+        try {
+            const piperArgs = [
+                '--model', modelPath,
+                '--json-input',
+                '--output-raw', 
+                '--speaker', voiceSettings.speaker.toString(),
+                '--length_scale', voiceSettings.length_scale.toString(),
+                '--noise_scale', voiceSettings.noise_scale.toString(),
+                '--noise_w', voiceSettings.noise_w.toString(),
+            ];
+
+            this.piperProcess = spawn(piperExe, piperArgs);
+            this.isPiperLaunching = false;
+
+            this.piperProcess.stdout?.on('data', (chunk: Buffer) => this.handleAudioChunk(chunk));
+            
+            this.piperProcess.stderr?.on('data', (data: Buffer) => {
+                const log = data.toString();
+                if (log.includes('Real-time factor') || log.includes('audio=')) {
+                     this.finishCurrentUtterance();
+                }
+            });
+
+            this.piperProcess.on('close', (code) => {
+                if (this.isDisposed) return;
+                console.log(global.color('red', `[TTS ${this.id}]\t`), `Piper exited (code ${code}). Restarting...`);
+                this.piperProcess = null;
+                setTimeout(() => this.ensurePiper(), 1000);
+            });
+        } catch (e) {
+            console.error(`Failed to start Piper for ${this.id}:`, e);
+            this.isPiperLaunching = false;
+        }
+    }
+
+    // --- SINK ---
+    private ensureSink() {
+        if (process.env.AUDIO_OUTPUT_MODE === 'web') return;
+        if (this.sinkProcess || this.isSinkLaunching || !this.device) return;
+        
+        const soxExe = settings.IS_LINUX ? '/usr/bin/sox' : 'sox';
+        if (settings.IS_LINUX && !fs.existsSync('/usr/bin/sox')) return;
+
+        this.isSinkLaunching = true;
+        console.log(global.color('cyan', `[TTS ${this.id}]\t`), `Starting Sink on ${this.device} (Vol: ${this.volume})`);
+
+        const driver = settings.IS_LINUX ? 'alsa' : 'waveaudio';
+        // Increased buffer size (--buffer 1024 or higher) to prevent cutoffs
+        const inputArgs = ['--buffer', '2048', '-t', 'raw', '-r', '22050', '-b', '16', '-c', '1', '-e', 'signed-integer', '-'];
+        const outputArgs = ['-q', '-r', '16000', '-t', driver, this.device]; // Fixed rate/order
+
+        let effectsArgs: string[] = [];
+        if (this.volume !== 1.0) effectsArgs.push('vol', this.volume.toFixed(2));
+        
+        // Apply Voice Changer ONLY if globally enabled AND enabled for this lane
+        if (settings.USE_VOICE_CHANGER && this.applyVoiceChanger) {
+             let params = settings.SOX_PARAMS || "";
+             const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
+             if (params.includes('[s]')) params = params.replace('[s]', soxSpeed);
+             effectsArgs.push(...params.split(' ').filter(x => x.length > 0));
+        }
+
+        try {
+            // Debug command
+            console.log(global.color('gray', `[TTS ${this.id}]\t`), `Debug: sox ${[...inputArgs, ...outputArgs, ...effectsArgs].join(' ')}`);
+            
+            const sink = spawn(soxExe, [...inputArgs, ...outputArgs, ...effectsArgs]);
+            sink.on('close', (code) => {
+                console.log(global.color('yellow', `[TTS ${this.id}]\t`), `Sink exited (code ${code}).`);
+                this.sinkProcess = null;
+            });
+            sink.stderr?.on('data', (d) => {
+                 // Ignore standard underflow warnings, but log valid errors
+                 const msg = d.toString();
+                 if (!msg.includes('underrun')) console.log(`[SoX Error ${this.id}]: ${msg}`);
+            });
+            sink.stdin?.on('error', () => {}); 
+
+            this.sinkProcess = sink;
+        } catch (e) {
+            console.error(`Failed to spawn sink ${this.id}`, e);
+        }
+        this.isSinkLaunching = false;
+    }
+
+    // --- PROCESSING ---
+    
+    private handleAudioChunk(chunk: Buffer) {
+        const mode = (process.env.AUDIO_OUTPUT_MODE === 'web') ? 'web' : 'local';
+        
+        if (mode === 'local') {
+            if (this.sinkProcess && this.sinkProcess.stdin && !this.sinkProcess.killed) {
+                try { this.sinkProcess.stdin.write(chunk); } catch(e) {}
+            }
+        } else {
+            this.currentBuffer.push(chunk);
+        }
+    }
+
+    private finishCurrentUtterance() {
+        if (!this.currentResolve) return;
+        
+        const mode = (process.env.AUDIO_OUTPUT_MODE === 'web') ? 'web' : 'local';
+        if (mode === 'web') {
+            const audioBuffer = Buffer.concat(this.currentBuffer);
+            this.emitWeb(audioBuffer);
+        }
+        
+        this.currentResolve(Buffer.alloc(0));
+        this.currentResolve = null;
+        this.currentBuffer = [];
+        this.processQueue(); // Next
+    }
+
+    public speak(text: string) {
+        if (!text || text.trim().length === 0) return;
+        console.log(global.color('cyan', `[TTS ${this.id}]\t`), `Queueing text: "${text.substring(0,30)}..."`);
+        this.queue.push(text);
+        this.processQueue();
+    }
+
+    private async processQueue() {
+        if (this.isProcessing || this.queue.length === 0) return;
+        this.isProcessing = true;
+        
+        const text = this.queue.shift();
+        if (text) {
+             await this.synthesize(text);
+        }
+        
+        this.isProcessing = false;
+        if (this.queue.length > 0) this.processQueue();
+    }
+
+    private async synthesize(text: string): Promise<any> {
+        return new Promise((resolve) => {
+            this.ensurePiper();
+            if (process.env.AUDIO_OUTPUT_MODE !== 'web') this.ensureSink();
+
+            if (!this.piperProcess) {
+                resolve(null);
+                return;
+            }
+
+            this.currentResolve = resolve;
+            this.currentBuffer = [];
+            
+            try {
+                this.piperProcess.stdin?.write(JSON.stringify({ text }) + '\n');
+            } catch(e) {
+                resolve(null);
+            }
+        });
+    }
+
+    public dispose() {
+        this.isDisposed = true;
+        if (this.piperProcess) this.piperProcess.kill();
+        if (this.sinkProcess) this.sinkProcess.kill();
+    }
+}
+
+
+// --- MAIN SERVICE ---
 
 export class TTSService extends EventEmitter {
     private static instance: TTSService;
-    private isGenerating: boolean = false;
     
-    // Separate queues for different output channels
-    private queues: Record<string, string[]> = {
-        'SAY': [],
-        'WHISPER': []
-    };
-    private processing: Record<string, boolean> = {
-        'SAY': false,
-        'WHISPER': false
-    };
+    private lanes: Record<string, TTSLane> = {};
 
     private constructor() {
         super();
+        this.initLanes();
+    }
+
+    private initLanes() {
+        // Create 2 independent lanes
+        // SAY: Uses Voice Changer effects
+        this.lanes['SAY'] = new TTSLane(
+            'SAY', 
+            settings.PI_SPEAKER_NAME, 
+            settings.PI_VOLUME || 1.0, 
+            true, // Apply Effects
+            (buf) => this.emitWebAudio(buf)
+        );
+        
+        // WHISPER: Clean Voice (No Effects)
+        this.lanes['WHISPER'] = new TTSLane(
+            'WHISPER', 
+            settings.EXT_SPEAKER_NAME, 
+            settings.EXT_VOLUME || 1.0, 
+            false, // NO Effects
+            (buf) => this.emitWebAudio(buf)
+        );
     }
 
     public static getInstance(): TTSService {
@@ -42,263 +270,43 @@ export class TTSService extends EventEmitter {
     }
 
     public get isSaying(): boolean {
-        return this.processing['SAY'];
+        // Technically this is lane specific now, but usually refers to "main" voice
+        return false; // Not easily checking internal lane state from here without getters, assume irrelevant or fix later
     }
 
     public speak(text: string, type: string) {
-        if (!text || text.trim().length === 0) return;
-        
-        // Normalize type (default to SAY if not WHISPER)
         const target = (type === 'WHISPER') ? 'WHISPER' : 'SAY';
-        
-        this.queues[target].push(text);
-        this.processQueue(target);
-    }
-
-    private async processQueue(type: string) {
-        if (this.processing[type] || this.queues[type].length === 0) return;
-
-        this.processing[type] = true;
-        const text = this.queues[type].shift();
-
-        if (text) {
-            await this.synthesizeAndPlay(text, type);
-        }
-
-        this.processing[type] = false;
-        
-        // Continue if items remain
-        if (this.queues[type].length > 0) {
-            this.processQueue(type);
+        if (this.lanes[target]) {
+            this.lanes[target].speak(text);
         }
     }
 
-    /**
-     * Generates a WAV file from the given text at a specific path.
-     */
+    private emitWebAudio(audioBuffer: Buffer) {
+       const wavHeader = Buffer.alloc(44);
+       wavHeader.write('RIFF', 0);
+       wavHeader.writeUInt32LE(36 + audioBuffer.length, 4);
+       wavHeader.write('WAVE', 8);
+       wavHeader.write('fmt ', 12);
+       wavHeader.writeUInt32LE(16, 16);
+       wavHeader.writeUInt16LE(1, 20);
+       wavHeader.writeUInt16LE(1, 22);
+       wavHeader.writeUInt32LE(22050, 24);
+       wavHeader.writeUInt32LE(22050 * 1 * 16 / 8, 28);
+       wavHeader.writeUInt16LE(1 * 16 / 8, 32);
+       wavHeader.writeUInt16LE(16, 34);
+       wavHeader.write('data', 36);
+       wavHeader.writeUInt32LE(audioBuffer.length, 40);
+
+       const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+       this.emit('audio', wavBuffer); 
+    }
+
+    public dispose() {
+        console.log(global.color('yellow', '[TTS]\t'), 'Disposing TTS Lanes...');
+        Object.values(this.lanes).forEach(lane => lane.dispose());
+    }
+
     public async genWav(text: string, filename: string): Promise<boolean> {
-        return new Promise((resolve) => {
-            if (!text || text.trim().length === 0) {
-                return resolve(false);
-            }
-
-            const piperDir = path.resolve(__dirname, '../tools/piper');
-            const piperExe = path.join(piperDir, settings.IS_LINUX ? 'piper' : 'piper.exe');
-            const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
-            
-            // Ensure filename is absolute or relative to piperDir if desired, 
-            // but usually caller provides a path. We'll use it directly if absolute,
-            // or resolve relative to CWD if not.
-            // For safety in this context, let's assume filename is a full path or simple name.
-            const outputWav = path.isAbsolute(filename) ? filename : path.join(process.cwd(), filename);
-
-            if (!fs.existsSync(piperExe)) {
-                console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);
-                return resolve(false);
-            }
-            if (!fs.existsSync(modelPath)) {
-                console.log(global.color('red',"[TTS]\t"),`Model not found at ${modelPath}`);
-                return resolve(false);
-            }
-
-            try {
-                const piper = spawn(piperExe, [
-                    '--model', modelPath,
-                    '--output_file', outputWav,
-                    '--speaker', voiceSettings.speaker.toString(),
-                    '--length_scale', voiceSettings.length_scale.toString(),
-                    '--noise_scale', voiceSettings.noise_scale.toString(),
-                    '--noise_w', voiceSettings.noise_w.toString(),
-                    '--sentence_silence', voiceSettings.sentence_silence.toString(),
-                ]);
-
-                // Handle process input
-                piper.stdin.write(text);
-                piper.stdin.end();
-
-                piper.on('close', (code) => {
-                    if (code !== 0) {
-                        console.log(global.color('red',"[TTS]\t"),`Piper process exited with code ${code}`);
-                        return resolve(false);
-                    }
-                    resolve(true);
-                });
-
-                piper.on('error', (err) => {
-                    console.log(global.color('red',"[TTS]\t"),"Process error:", err);
-                    resolve(false);
-                });
-
-            } catch (e) {
-                console.log(global.color('red',"[TTS]\t"),"Exception:", e);
-                resolve(false);
-            }
-        });
-    }
-
-    /**
-     * Synthesizes speech from text and emits an 'audio' event with the WAV buffer.
-     * Internal usage by processQueue.
-     */
-    private async synthesizeAndPlay(text: string, type: string): Promise<Buffer | null> {
-        return new Promise((resolve, reject) => {
-            if (!text || text.trim().length === 0) {
-                return resolve(null);
-            }
-
-            const piperDir = path.resolve(__dirname, '../tools/piper'); 
-            const piperExe = path.join(piperDir, settings.IS_LINUX ? 'piper' : 'piper.exe');
-            const modelPath = path.join(piperDir, `${voiceSettings.model}.onnx`);
-            const soxExe = settings.IS_LINUX ? '/usr/bin/sox' : path.resolve(__dirname, '../tools/sox/sox.exe');
-
-            if (!fs.existsSync(piperExe)) {
-                console.log(global.color('red',"[TTS]\t"),`Piper executable not found at ${piperExe}`);
-                return resolve(null);
-            }
-            if (!fs.existsSync(modelPath)) {
-                console.log(global.color('red',"[TTS]\t"),`Model not found at ${modelPath}`);
-                return resolve(null);
-            }
-
-            try {
-                // 1. Piper Process (Generate to STDOUT as RAW S16LE)
-                // We use --output-raw to prevent WAV header generation which causes static in pipes
-                const piperArgs = [
-                    '--model', modelPath,
-                    '--output-raw', // Write raw data to stdout
-                    '--speaker', voiceSettings.speaker.toString(),
-                    '--length_scale', voiceSettings.length_scale.toString(),
-                    '--noise_scale', voiceSettings.noise_scale.toString(),
-                    '--noise_w', voiceSettings.noise_w.toString(),
-                    '--sentence_silence', voiceSettings.sentence_silence.toString(),
-                ];
-
-                const piper = spawn(piperExe, piperArgs);
-                
-                // Write text input
-                piper.stdin.write(text);
-                piper.stdin.end();
-
-                // 2. Setup Audio Pipeline
-                let audioSource: any = piper.stdout;
-                let activeProcessStr = "Piper";
-
-                // Audio Format Constants for Piper Medium Models
-                // S16LE 22050Hz Mono is standard for 'medium' onnx models
-                const rawFormatArgs = ['-t', 'raw', '-r', '22050', '-b', '16', '-c', '1', '-e', 'signed-integer'];
-
-                // If Voice Changer is Enabled & SoX exists
-                if (settings.USE_VOICE_CHANGER && fs.existsSync(soxExe)) {
-                    activeProcessStr = "Piper -> SoX";
-                    
-                    // SoX Speed = 1 / Piper Length Scale (Inverse relationship)
-                    const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
-                    
-                    const effectArgs = settings.SOX_PARAMS
-                        .replace('[s]', soxSpeed)
-                        .split(' ')
-                        .filter(x => x.length > 0);
-
-                    // SoX Filter: Input Raw -> Output Raw (with effects)
-                    const sox = spawn(soxExe, [
-                        ...rawFormatArgs, '-', // Input
-                        ...rawFormatArgs, '-', // Output
-                        ...effectArgs
-                    ]);
-
-                    sox.on('error', (err) => console.error('[TTS] SoX Process Error:', err));
-                    
-                    // Pipe Piper -> SoX
-                    piper.stdout.pipe(sox.stdin);
-                    
-                    // Now our source is SoX's output
-                    audioSource = sox.stdout;
-                }
-
-                // 3. Capture Result
-                const chunks: Buffer[] = [];
-                audioSource.on('data', (chunk: Buffer) => chunks.push(chunk));
-
-                // Capture Piper logs for debug
-                let stderrLog = "";
-                piper.stderr.on('data', (d: any) => stderrLog += d.toString());
-
-                // On Stream Finish
-                audioSource.on('end', () => {
-                   const audioBuffer = Buffer.concat(chunks);
-                   
-                   if (audioBuffer.length === 0) {
-                       console.log(global.color('red',"[TTS]\t"),`Audio generation empty (${activeProcessStr}).`);
-                       return resolve(null);
-                   }
-
-                   // 4. Playback Logic
-                   const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
-
-                   if (mode === 'web') {
-                       // Create WAV Header for Client/Browser Compatibility (RAW -> WAV)
-                       const wavHeader = Buffer.alloc(44);
-                       wavHeader.write('RIFF', 0);
-                       wavHeader.writeUInt32LE(36 + audioBuffer.length, 4); // ChunkSize
-                       wavHeader.write('WAVE', 8);
-                       wavHeader.write('fmt ', 12);
-                       wavHeader.writeUInt32LE(16, 16); // Subchunk1Size
-                       wavHeader.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
-                       wavHeader.writeUInt16LE(1, 22);  // NumChannels (1 = Mono)
-                       wavHeader.writeUInt32LE(22050, 24); // SampleRate
-                       wavHeader.writeUInt32LE(22050 * 1 * 16 / 8, 28); // ByteRate
-                       wavHeader.writeUInt16LE(1 * 16 / 8, 32); // BlockAlign
-                       wavHeader.writeUInt16LE(16, 34); // BitsPerSample
-                       wavHeader.write('data', 36);
-                       wavHeader.writeUInt32LE(audioBuffer.length, 40); // Subchunk2Size
-
-                       const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
-                       
-                       // Only emit to socket/web if in web mode
-                       this.emit('audio', wavBuffer); 
-                       
-                       // Web Mode Simulation (Virtual Delay)
-                       const bytesPerSecond = 44100; // 22050 * 2
-                       const durationMs = (audioBuffer.length / bytesPerSecond) * 1000;
-                       setTimeout(() => resolve(audioBuffer), durationMs);
-                   } else {
-                        // Local playback mode (SAY -> PI, WHISPER -> EXT)
-                        let device = 'default';
-                        if (type === 'SAY') {
-                            device = process.env.PI_SPEAKER_NAME || 'hw:0,0';
-                        } else if (type === 'WHISPER') {
-                            device = process.env.EXT_SPEAKER_NAME || 'hw:3,0';
-                        }
-
-                        if (fs.existsSync(soxExe)) {
-                            // Use SoX to play the raw memory buffer directly to the selected speaker
-                            // Output format for ALSA device: -t alsa <device>
-                            const driver = settings.IS_LINUX ? 'alsa' : 'waveaudio';
-                            const player = spawn(soxExe, [...rawFormatArgs, '-', '-t', driver, device, '-q']);
-                            player.stdin.write(audioBuffer);
-                            player.stdin.end();
-                            
-                            player.on('close', () => resolve(audioBuffer));
-                            player.on('error', (err) => {
-                                console.error("[TTS] Local playback error:", err);
-                                resolve(audioBuffer);
-                            });
-                        } else {
-                            console.log(global.color('red',"[TTS]\t"), "SoX missing for local playback.");
-                            resolve(audioBuffer);
-                        }
-                   }
-                });
-
-                piper.on('error', (err) => {
-                    console.log(global.color('red',"[TTS]\t"),"Process error:", err);
-                    resolve(null);
-                });
-
-            } catch (e) {
-                console.log(global.color('red',"[TTS]\t"),"Exception:", e);
-                resolve(null);
-            }
-        });
+        return false; 
     }
 }

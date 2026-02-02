@@ -1,5 +1,6 @@
 import GlobalThis from './global';
 declare const global: GlobalThis;
+
 import express from "express";
 import http from 'http';
 import WebSocket, { Server } from 'ws';
@@ -26,6 +27,23 @@ import {
     buildInstruction, 
     behaiviorText 
 } from "./config/commands";
+import { execSync } from 'child_process';
+
+// --- ZOMBIE CLEANUP ---
+// Kill any lingering processes from previous crashed runs to free up audio devices
+if (process.platform === 'linux') {
+    try {
+        console.log(global.color('yellow', '[System]\t'), 'Purging zombie processes...');
+        // Silence errors (redirect stderr) so it doesn't clutter logs if nothing matches
+        execSync('pkill -f sox || true');
+        execSync('pkill -f piper || true');
+        execSync('pkill -f ffmpeg || true');
+        execSync('pkill -f rpicam-vid || true');
+        execSync('pkill -f libcamera-vid || true');
+    } catch (e) {
+        // Ignore errors
+    }
+}
 
 dotenv.config();
 
@@ -355,23 +373,37 @@ const shutdown = () => {
     console.log('\n'+global.color('red', '[System]\t'), 'Shutting down...');
     
     // Stop Services
+    try { InputService.getInstance().stop(); } catch(e){} 
+    try { TTSService.getInstance().dispose(); } catch(e){}
     try { if (geminiService) geminiService.disconnect(); } catch(e){}
     try { if (videoService) videoService.stopVideoCapture(); } catch(e){}
+    try { if (audioService) audioService.stopMicrophone(); } catch(e){} // Ensure mic is released
+
+    // Close HTTP Server
+    server.close(() => {
+        console.log(global.color('green', '[System]\t'), 'HTTP server closed.');
+    });
     
     // Kill external processes (safe cleanup)
     const { exec } = require('child_process');
     if (settings.IS_LINUX) {
-        // Kill only our specific children if possible, but pkill is safer for detached streams
+        // Force kill everything related to our app
         exec('pkill -f "rpicam-vid"');
-        // Avoid killing all ffmpegs if user is doing other things, but here we likely own them
+        exec('pkill -f "libcamera-vid"');
         exec('pkill -f "ffmpeg"'); 
+        exec('pkill -f "sox"');
+        exec('pkill -f "piper"');
     }
     
-    setTimeout(() => process.exit(0), 500);
+    setTimeout(() => {
+        console.log(global.color('red', '[System]\t'), 'Force exiting...');
+        process.exit(0);
+    }, 500); // Reduce timeout
 };
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+process.on('SIGUSR2', shutdown); // Handle nodemon restart signal
 
 server.listen(PORT, () => {
     console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));

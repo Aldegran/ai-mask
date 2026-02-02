@@ -142,12 +142,12 @@ interface CommandConfig {
 
 export const commands: Record<string, CommandConfig> = {
     'SAY': {
-        shouldSpeak: () => settings.TTS_FOR === "SAY" ? 'say' : false,
+        shouldSpeak: () => process.env.AUDIO_OUTPUT_MODE === 'web' ? (settings.TTS_FOR === "SAY" ? 'say' : false) : 'say',
         color: 'green'
     },
     'WHISPER': {
-        shouldSpeak: () => settings.TTS_FOR === "WHISPER" ? 'whisper' : false,
-        transformText: (text) => "Бажання. " + text, // "Wish. " [content]
+        shouldSpeak: () => process.env.AUDIO_OUTPUT_MODE === 'web' ? (settings.TTS_FOR === "WHISPER" ? 'whisper' : false) : 'whisper',
+        //transformText: (text) => "Бажання. " + text, // "Wish. " [content]
         color: 'green'
     },
     'THINK': {

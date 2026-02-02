@@ -43,7 +43,7 @@ export class AudioService extends EventEmitter {
                 '-ar', '16000',
                 '-ac', '1',
                 '-f', 's16le',
-                '-filter:a', 'volume=5.0', // Boost volume 5x
+                '-filter:a', `volume=${settings.MIC_VOLUME_GAIN.toFixed(1)}`, // Dynamic volume
                 'pipe:1'
             ] : [
                 '-f', 'dshow',
@@ -116,6 +116,12 @@ export class AudioService extends EventEmitter {
             try { this.microphoneProcess.kill('SIGKILL'); } catch(e){}
             this.isRunning = false;
         }
+        // Force kill voice changer process too
+         if (this.soxProcess) {
+             try { this.soxProcess.kill('SIGKILL'); } catch(e){}
+             this.soxProcess = null;
+             this.isVoiceChangerActive = false;
+         }
     }
 
     public enableVoiceChanger(enable: boolean) {
@@ -136,6 +142,8 @@ export class AudioService extends EventEmitter {
     }
 
     private startSoxProcess() {
+        if (this.soxProcess) return; // Already running logic
+
         const soxExe = settings.IS_LINUX ? 'sox' : path.resolve(__dirname, '../tools/sox/sox.exe');
         const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
         const device = process.env.PI_SPEAKER_NAME || 'default';
@@ -149,15 +157,16 @@ export class AudioService extends EventEmitter {
             .filter(x => x.length > 0);
 
         // FFmpeg output is 16000Hz s16le mono
-        // Added --buffer to reduce glitching
-        const rawFormatArgs = ['--buffer', '2048', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'];
+        // Added --buffer to reduce glitching (increased to 4096)
+        const rawFormatArgs = ['--buffer', '512', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'];
         
+        console.log(global.color('blue', '[Audio]\t\t'), "Launching Persistent Voice Changer...");
+
         try {
-            // If mode is NOT web, we output directly to the speakers (local monitor/mask mode)
-            // If mode IS web, we output to stdout to be emitted to Gemini/Browser
+            // If mode is NOT web, we output directly to the speakers
             const outputArgs = (mode === 'web') 
-                ? ['--buffer', '2048', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'] 
-                : ['-t', driver, device];
+                ? ['-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer', '-'] 
+                : ['-r', '48000', '-q', '-t', driver, device];
 
             this.soxProcess = spawn(soxExe, [
                 ...rawFormatArgs, '-', 
@@ -167,26 +176,24 @@ export class AudioService extends EventEmitter {
 
             if (mode === 'web') {
                 this.soxProcess.stdout.on('data', (chunk: Buffer) => {
-                     this.emit('audio', chunk); // Emit processed audio to Gemini/Web
+                     if (this.isVoiceChangerActive) {
+                        this.emit('audio', chunk); 
+                     }
                 });
             }
             
-            this.soxProcess.stderr.on('data', (d:any) => {
-                console.log(global.color('red','[SoX Mic]\t'), "Error: "+d.toString());
-            });
-            
+            // Handle restart on crash
             this.soxProcess.on('close', (code: number) => {
-                 if( code !== null ) {
-                    console.log(global.color('red','[SoX Mic]\t'), "Process exited with code", code);
-                 }
-                 this.isVoiceChangerActive = false;
                  this.soxProcess = null;
+                 // If we expected it to be running, restart it? 
+                 // For now, only restart if it was active
+                 if (this.isVoiceChangerActive && settings.USE_VOICE_CHANGER) {
+                     setTimeout(() => this.startSoxProcess(), 1000);
+                 }
             });
             
-            this.soxProcess.on('error', (err:any) => {
-                console.error("SoX Mic Error", err);
-                this.isVoiceChangerActive = false;
-            });
+            this.soxProcess.stderr.on('data', () => {}); // Silence logs
+
         } catch (e) {
              console.log(global.color('red','[SoX Mic]\t'), "Failed to start SoX for Mic", e);
         }

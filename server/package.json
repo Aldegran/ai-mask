@@ -4,8 +4,8 @@
   "description": "AI Mask Server",
   "private": false,
   "scripts": {
-    "start": "nodemon index.ts",
-    "run": "ts-node index.ts",
+    "start": "UV_THREADPOOL_SIZE=16 nodemon index.ts",
+    "run": "UV_THREADPOOL_SIZE=16 ts-node index.ts",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {

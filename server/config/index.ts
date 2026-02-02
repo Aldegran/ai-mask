@@ -26,14 +26,19 @@ const settings = {
     API_KEY: process.env.GEMINI_API_KEY || '',
     VIDEO_DEVICE: process.env.CAMERA_NAME+'',
     AUDIO_DEVICE: process.env.MIC_NAME+'',
+    PI_SPEAKER_NAME: process.env.PI_SPEAKER_NAME || 'plughw:0,0',
+    EXT_SPEAKER_NAME: process.env.EXT_SPEAKER_NAME || 'plughw:3,0',
     WEBSOCKET_URL: process.env.GEMINI_WEBSOCKET_URL,
     FPS: 1, // Target FPS for processing/sending
     CAMERA_FPS: 30, // Hardware capture FPS
     CAMERA_WIDTH: 640,
     CAMERA_HEIGHT: 480,
     TTS_FOR: "SAY",
+    PI_VOLUME: 1.0,
+    EXT_VOLUME: 1.0,
     ENABLE_CLIENT_MIC_MONITORING: false, 
     USE_VOICE_CHANGER: true,
+    MIC_VOLUME_GAIN: 5.0, // Volume multiplier (5.0 = 500%)
     SOX_PARAMS: "pitch -50 echo 0.8 0.8 60 0.4 reverb 10 100 speed [s]",
     SOX_ECHO_PARAMS: "pitch 200 echo 0.8 0.8 60 0.4 reverb 10 100",
     DELIM: "\n\nНижче буде твоя історія попередніх взаємодій з оточуючим світом. Використовуй цю інформацію, щоб надати більш контекстуальні відповіді.\n\n",
