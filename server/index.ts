@@ -113,6 +113,23 @@ app.post('/behaivior', (req, res) => {
     }
 });
 
+// Manual TTS Endpoints
+app.get('/say', (req, res) => {
+    const text = req.query.text as string;
+    if (!text) return res.status(400).send("Missing text query param");
+    
+    ttsService.speak(text, 'SAY');
+    res.send(`Saying: ${text}`);
+});
+
+app.get('/whisper', (req, res) => {
+    const text = req.query.text as string;
+    if (!text) return res.status(400).send("Missing text query param");
+    
+    ttsService.speak(text, 'WHISPER');
+    res.send(`Whispering: ${text}`);
+});
+
 // Test SoX Endpoint
 app.get('/test-sox', async (req, res) => {
     if (!fs.existsSync('test.wav')) {

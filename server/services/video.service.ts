@@ -61,6 +61,7 @@ export class VideoService extends EventEmitter {
                     '--height', settings.CAMERA_HEIGHT.toString(),
                     '--framerate', settings.CAMERA_FPS.toString(),
                     '--codec', 'mjpeg',
+                    '--rotation', '180',
                     '-n',
                     '-o', '-'
                 ];
@@ -86,7 +87,12 @@ export class VideoService extends EventEmitter {
             });
 
             this.ffmpegProcess.stderr.on('data', (data: Buffer) => {
-                 // console.error(`FFmpeg stderr: ${data}`); 
+                if(data.indexOf("INFO")<0) console.log(global.color('red','[Video]\t\t'),`stderr: ${data}`); 
+            });
+
+            this.ffmpegProcess.on('error', (err: any) => {
+                console.log(global.color('red','[Video]\t\t'),'Video Process Error:', err);
+                this.isRunning = false;
             });
 
             this.ffmpegProcess.on('exit', (code: number) => {

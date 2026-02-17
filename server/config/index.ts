@@ -35,7 +35,7 @@ const settings = {
     CAMERA_HEIGHT: 480,
     TTS_FOR: "SAY",
     PI_VOLUME: 1.0,
-    EXT_VOLUME: 1.0,
+    EXT_VOLUME: 0.1,
     ENABLE_CLIENT_MIC_MONITORING: false, 
     USE_VOICE_CHANGER: true,
     MIC_VOLUME_GAIN: 5.0, // Volume multiplier (5.0 = 500%)

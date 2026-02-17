@@ -146,16 +146,15 @@ export class AudioService extends EventEmitter {
 
         const soxExe = settings.IS_LINUX ? 'sox' : path.resolve(__dirname, '../tools/sox/sox.exe');
         const mode = process.env.AUDIO_OUTPUT_MODE || 'default';
-        const device = process.env.PI_SPEAKER_NAME || 'default';
+        const device = process.env.EXT_SPEAKER_NAME || 'default';
         const driver = settings.IS_LINUX ? 'alsa' : 'waveaudio';
 
         // SoX Speed = 1 / Piper Length Scale
         const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
         
-        const effectArgs = settings.SOX_ECHO_PARAMS
-            .split(' ')
-            .filter(x => x.length > 0);
-
+        let effectArgs = settings.SOX_ECHO_PARAMS.split(' ');
+        if (settings.EXT_VOLUME !== 1.0) effectArgs.push('vol', settings.EXT_VOLUME.toFixed(2));
+        effectArgs = effectArgs.filter(x => x.length > 0);
         // FFmpeg output is 16000Hz s16le mono
         // Added --buffer to reduce glitching (increased to 4096)
         const rawFormatArgs = ['--buffer', '512', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'];

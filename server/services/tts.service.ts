@@ -140,7 +140,7 @@ class TTSLane {
             sink.stderr?.on('data', (d) => {
                  // Ignore standard underflow warnings, but log valid errors
                  const msg = d.toString();
-                 if (!msg.includes('underrun')) console.log(`[SoX Error ${this.id}]: ${msg}`);
+                 if (!msg.includes('under-run')) console.log(`[SoX Error ${this.id}]: ${msg}`);
             });
             sink.stdin?.on('error', () => {}); 
 
@@ -246,8 +246,8 @@ export class TTSService extends EventEmitter {
         // SAY: Uses Voice Changer effects
         this.lanes['SAY'] = new TTSLane(
             'SAY', 
-            settings.PI_SPEAKER_NAME, 
-            settings.PI_VOLUME || 1.0, 
+            settings.EXT_SPEAKER_NAME, 
+            settings.EXT_VOLUME || 1.0, 
             true, // Apply Effects
             (buf) => this.emitWebAudio(buf)
         );
@@ -255,8 +255,8 @@ export class TTSService extends EventEmitter {
         // WHISPER: Clean Voice (No Effects)
         this.lanes['WHISPER'] = new TTSLane(
             'WHISPER', 
-            settings.EXT_SPEAKER_NAME, 
-            settings.EXT_VOLUME || 1.0, 
+            settings.PI_SPEAKER_NAME, 
+            settings.PI_VOLUME || 1.0, 
             false, // NO Effects
             (buf) => this.emitWebAudio(buf)
         );
