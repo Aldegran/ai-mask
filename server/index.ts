@@ -27,7 +27,8 @@ import {
     buildInstruction, 
     behaiviorText 
 } from "./config/commands";
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
+import fs from 'fs';
 
 // --- ZOMBIE CLEANUP ---
 // Kill any lingering processes from previous crashed runs to free up audio devices
@@ -56,8 +57,6 @@ const wss = new Server({ server });
 
 app.use(cors());
 app.use(express.json());
-
-import fs from 'fs';
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -402,7 +401,7 @@ const shutdown = () => {
     });
     
     // Kill external processes (safe cleanup)
-    const { exec } = require('child_process');
+    const { exec, spawnSync } = require('child_process');
     if (settings.IS_LINUX) {
         // Force kill everything related to our app
         exec('pkill -f "rpicam-vid"');
@@ -410,12 +409,20 @@ const shutdown = () => {
         exec('pkill -f "ffmpeg"'); 
         exec('pkill -f "sox"');
         exec('pkill -f "piper"');
+        // Aggressively kill gpiomon too
+        try { spawnSync('pkill', ['-9', '-f', 'gpiomon'], { stdio: 'ignore' }); } catch(e){}
     }
     
+
     setTimeout(() => {
-        console.log(global.color('red', '[System]\t'), 'Force exiting...');
-        process.exit(0);
-    }, 500); // Reduce timeout
+        try {
+            // Write directly to stderr to ensure visibility (file descriptor 2)
+            fs.writeSync(2, global.color('red', '[System]\t') + ' Force exiting via SIGKILL...\n');
+        } catch(e) {}
+        
+        // Instant suicide. No cleanup, no flush, no mercy.
+        process.kill(process.pid, 'SIGKILL');
+    }, 500); // 500ms timeout
 };
 
 process.on('SIGINT', shutdown);
@@ -426,8 +433,152 @@ server.listen(PORT, () => {
     console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
 });
 
+
 serviceStart('begin');
 
-//TTSService.getInstance().genWav("Тестуємо голос. Тестуємо звук", "test.wav");
+// --- GPIO SWITCH CONTROL (Shell Exec Fallback) ---
+// Since native Node libraries are failing with EINVAL on this kernel/OS version (Debian 13),
+// we will use the system's 'gpiod' tools directly via child_process.
+
+const GPIO_PIN = 17;
+// On RPi 5/Bookworm, user pins are often on gpiochip4. On Pi 4, gpiochip0.
+// We prioritize gpiochip0 as it is standard on most Pi 4 setups.
+const CHIP_CANDIDATES = ['gpiochip0', 'gpiochip4']; 
+
+function findGpioChip(pin: number): string | null {
+    if (!settings.IS_LINUX) return null;
+    for (const chip of CHIP_CANDIDATES) {
+        try {
+            // Check if we can read the line on this chip without error
+            // gpioget v2 requires --chip flag
+            execSync(`gpioget --chip ${chip} ${pin}`,{stdio: 'pipe'});
+            return chip;
+        } catch (e) { continue; }
+    }
+    return null;
+}
+
+try {
+    if (settings.IS_LINUX) {
+        const chip = findGpioChip(GPIO_PIN);
+        
+        if (chip) {
+            console.log(global.color('green', '[GPIO]\t\t'), `Using ${chip} for GPIO ${GPIO_PIN}...`);
+            
+            // 1. Initial State Read with Bias
+            try {
+                // If switch is OPEN (OFF), pinning is floating -> need Pull-Up to see '1'
+                // If switch is CLOSED (ON), it is grounded -> '0'
+                // So we MUST use --bias=pull-up to ensure '1' when OFF.
+                
+                // ADDED --numeric to get just "0" or "1" output.
+                const out = execSync(`gpioget --chip ${chip} --bias=pull-up --numeric ${GPIO_PIN}`).toString().trim();
+                const initialActive = (out === '0'); // 0 means Grounded/ON
+                
+                if (initialActive) {
+                    // Set flag immediately
+                    isGeminiActive = true; 
+                    
+                    console.log(global.color('cyan', '[GPIO]\t\t'), "Switch initially ON -> Enabling Gemini");
+                    
+                    // Delay connection slightly to allow rest of server to settle
+                    setTimeout(() => {
+                        if(isGeminiActive) geminiService.connect();
+                    }, 2000);
+                } else {
+                    console.log(global.color('yellow', '[GPIO]\t\t'), "Switch initially OFF -> Gemini Standby");
+                    isGeminiActive = false;
+                }
+            } catch(e) { console.warn("GPIO Init Read Error", e); }
+
+            // 2. Start Monitor Process (gpiomon)
+            // Added -p 50ms debounce to filter out mechanical noise
+            // Added detached:true to ensure we can kill it cleanly without signal propagation issues?
+            // But we want it to die when parent dies usually. 
+            // Let's stick to standard spawn but handle kill better.
+            const monitor = spawn('gpiomon', [
+                '--chip', chip, 
+                '--bias=pull-up', 
+                '--num-events=0', 
+                '--debounce-period=50ms', // HARDWARE DEBOUNCE via driver
+                '--format=%E', 
+                String(GPIO_PIN)
+            ]); // Removed unneeded options, rely on default piping for stdout
+
+            monitor.unref(); // Don't let this child prevent Node from exiting naturally if event loop is empty
+                             // (Though we have other active handles like server)
+            
+            // Software throttle to prevent rapid toggle spam
+            let lastToggleTime = 0;
+            const TOGGLE_COOLDOWN = 1000; // 1 second cooldown
+            
+            monitor.stdout.on('data', (data: any) => {
+                const lines = data.toString().split('\n');
+                lines.forEach((line: string) => {
+                    const l = line.trim();
+                    if (!l) return;
+                    
+                    const now = Date.now();
+                    if (now - lastToggleTime < TOGGLE_COOLDOWN) {
+                        console.log(global.color('yellow', '[GPIO]\t\t'), "Ignored rapid toggle (Debounce)");
+                        return;
+                    }
+
+                    // falling -> Transition to LOW (0) -> Active
+                    if (l.includes('falling')) {
+                        if (!isGeminiActive) {
+                            lastToggleTime = now;
+                            console.log(global.color('cyan', '[GPIO]\t\t'),"Switch ON -> Enabling Gemini");
+                            isGeminiActive = true;
+                            geminiService.connect();
+                            wss.clients.forEach(c => {
+                                if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: true }));
+                            });
+                        }
+                    } 
+                    // rising -> Transition to HIGH (1) -> Inactive
+                    else if (l.includes('rising')) {
+                        if (isGeminiActive) {
+                            lastToggleTime = now;
+                            console.log(global.color('yellow', '[GPIO]\t\t'),"Switch OFF -> Disabling Gemini");
+                            isGeminiActive = false;
+                            geminiService.disconnect();
+                            wss.clients.forEach(c => {
+                                if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: false }));
+                            });
+                        }
+                    }
+                });
+            });
+
+            monitor.stderr.on('data', (d: any) => { /* ignore startup msgs */ });
+            
+            // Cleanup on exit
+            const cleanup = () => { 
+                try { 
+                    // Use tree-kill logic if needed, but SIGKILL on the handle usually works
+                    monitor.kill('SIGKILL'); 
+                } catch(e) {} 
+            };
+            
+            process.on('exit', cleanup);
+            
+            // Allow Node to exit even if this child is running (though we want to kill it)
+            // But if we unref, we might not get events? 
+            // Actually, keep it referenced but ensure we kill it.
+            
+            // CRITICAL: If the child process holds onto the TTY or something, it might block exit?
+            // Let's ensure we don't restart it or anything.
+
+        } else {
+             console.log(global.color('red', '[GPIO]\t'), `Could not find valid GPIO chip for Pin ${GPIO_PIN}. Ensure gpiod is installed.`);
+        }
+    }
+} catch (e: any) {
+    if (settings.IS_LINUX) {
+        console.warn(global.color('red', '[GPIO]\t'), `Setup failed entirely: ${e.message}`);
+    }
+}
 
 //fuser -k 5000/tcp || lsof -ti:5000 | xargs -r kill -9
+//pkill -f "ts-"

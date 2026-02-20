@@ -324,6 +324,19 @@
                             log(logPrefix + text);
                         }
                     }
+                    
+                    if (msg.type === 'gemini_control_sync') {
+                        // Sync state from physical switch (Server -> Client)
+                        useGeminiCk.checked = msg.enabled;
+                        updateGeminiAudioState(); // Update dependent audio state
+                        
+                        if (msg.enabled) {
+                            log("Gemini Session STARTED (Physical Switch)");
+                        } else {
+                            videoContainer.style.borderColor = "#444"; 
+                            log("Gemini Session ENDED (Physical Switch)");
+                        }
+                    }
 
                     if (msg.type === 'log') {
                         // System logs from server
@@ -332,7 +345,7 @@
                 };
             }
 
-            startBtn.onclick = async () => {
+            async function startMonitor() {
                 startBtn.disabled = true;
                 startBtn.innerText = "Connecting...";
                 
@@ -342,7 +355,13 @@
                         sampleRate: 16000, 
                         latencyHint: 'interactive'
                     });
-                    await audioCtx.resume();
+                    
+                    // Attempt to resume immediately (might fail if no user interaction yet)
+                    try {
+                        await audioCtx.resume();
+                    } catch(e) {
+                        console.warn("AudioContext resume failed (autoplay policy?), waiting for interaction...");
+                    }
 
                     // 2. Control Socket
                     setupControlSocket();
@@ -418,7 +437,23 @@
                     statusDiv.innerText = "Error: " + err.message;
                     startBtn.disabled = false;
                 }
-            };
+            }
+
+            startBtn.onclick = startMonitor;
+            
+            // Auto-start on load
+            window.addEventListener('load', () => {
+                startMonitor();
+            });
+
+            // Global interaction listener to resume AudioContext if it was blocked
+            document.addEventListener('click', () => {
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().then(() => {
+                        console.log("AudioContext resumed by user interaction");
+                    });
+                }
+            }, { once: true }); // Only need to do this once
 
             // KEYBOARD INPUT FORWARDING
             document.addEventListener('keydown', (e) => {
