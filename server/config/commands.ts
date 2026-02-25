@@ -5,12 +5,14 @@ import type { GeminiService } from '../services/gemini.service';
 import type { AudioService } from '../services/audio.service';
 import type { VideoService } from '../services/video.service';
 import type { TTSService } from '../services/tts.service';
+import type { DisplayService } from '../services/display.service';
 import fs from 'fs';
 
 let geminiService: GeminiService | null = null;
 let audioService: AudioService | null = null;
 let videoService: VideoService | null = null;
 let ttsService: TTSService | null = null;
+let displayService: DisplayService | null = null;
 
 export function setGeminiInstance(instance: GeminiService) {
     geminiService = instance;
@@ -23,6 +25,9 @@ export function setVideoInstance(instance: VideoService) {
 }
 export function setTTSInstance(instance: TTSService) {
     ttsService = instance;
+}
+export function setDisplayInstance(instance: DisplayService) {
+    displayService = instance;
 }
 
 interface ServicesConfig {
@@ -156,7 +161,10 @@ export const commands: Record<string, CommandConfig> = {
     },
     'EMOTION': {
         shouldSpeak: () => false,
-        color: 'magenta'
+        color: 'magenta',
+        work: (text) => {
+            if (displayService) displayService.setEmotion(text);
+        }
     },
     'PONG': {
         shouldSpeak: () => false,

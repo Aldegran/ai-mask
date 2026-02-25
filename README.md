@@ -1,6 +1,6 @@
 # Проект "Кибер Мозг" (AI Mask)
 
-Система ассистирования для киберпанк-LARP на базе Google Gemini и Raspberry Pi 5.
+Система ассистирования для киберпанк-LARP на базе Google Gemini и Raspberry Pi 4b.
 
 ## 🛠 Установка софта (Windows Dev)
 
@@ -25,7 +25,7 @@
 ## 📦 Железо (Финальная сборка "Маска")
 
 Для переноса прототипа потребуется:
-* **SBC**: Raspberry Pi 5 (4GB/8GB).
+* **SBC**: Raspberry Pi 4b (4GB/8GB).
 * **Cooling**: Official Active Cooler (критично!).
 * **Power**: Power Bank с поддержкой PD (минимум 3A/5V, лучше 20W+).
 * **Vision**: Raspberry Pi Camera Module 3 Wide.

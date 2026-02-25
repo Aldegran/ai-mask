@@ -15,6 +15,7 @@ import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
 import { TTSService, voiceSettings } from './services/tts.service';
 import { InputService } from './services/input.service';
+import { DisplayService } from './services/display.service';
 import settings from "./config/index";
 import { 
     getCommandConfig, 
@@ -22,6 +23,7 @@ import {
     setAudioInstance,
     setVideoInstance,
     setTTSInstance,
+    setDisplayInstance,
     serviceStart, 
     saveBehaiviorsBuild, 
     buildInstruction, 
@@ -48,8 +50,20 @@ if (process.platform === 'linux') {
 
 dotenv.config();
 
-// Init Input Service (Bluetooth Remote)
-InputService.getInstance();
+// --- MODULE CONTROL ---
+// Toggle subsystems here
+global.useModules = {
+    audio: true,
+    video: true,
+    keyboard: true,
+    ledMatrix: true,
+    webServer: true,
+}
+
+if (global.useModules.keyboard) {
+    // Init Input Service (Bluetooth Remote)
+    InputService.getInstance();
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -58,126 +72,140 @@ const wss = new Server({ server });
 app.use(cors());
 app.use(express.json());
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
 
-// --- API ---
-app.get('/instruction', (req, res) => {
-    res.send(buildInstruction());
-});
-app.get('/behaivior', (req, res) => {
-    res.send(behaiviorText);
-});
+if (global.useModules.webServer) {
+    app.get('/', (req, res) => {
+        res.sendFile(path.join(__dirname, 'index.html'));
+    });
 
-app.get('/settings', (req, res) => {
-    const { 
-        FPS,
-        CAMERA_FPS,
-        CAMERA_WIDTH,
-        CAMERA_HEIGHT,
-        TTS_FOR,
-        ENABLE_CLIENT_MIC_MONITORING,
-    } = settings;
+    // --- API ---
+    app.get('/instruction', (req, res) => {
+        res.send(buildInstruction());
+    });
+    app.get('/behaivior', (req, res) => {
+        res.send(behaiviorText);
+    });
 
-    res.json({ FPS,CAMERA_FPS,CAMERA_WIDTH,CAMERA_HEIGHT,TTS_FOR, ENABLE_CLIENT_MIC_MONITORING });
-});
+    app.get('/settings', (req, res) => {
+        const { 
+            FPS,
+            CAMERA_FPS,
+            CAMERA_WIDTH,
+            CAMERA_HEIGHT,
+            TTS_FOR,
+            ENABLE_CLIENT_MIC_MONITORING,
+        } = settings;
 
-app.post('/instruction', (req, res) => {
-    try {
-        const text = req.body.text;
-        if (typeof text !== 'string') {
-             res.status(400).send("Invalid input");
-             return;
+        res.json({ FPS,CAMERA_FPS,CAMERA_WIDTH,CAMERA_HEIGHT,TTS_FOR, ENABLE_CLIENT_MIC_MONITORING });
+    });
+
+    app.post('/instruction', (req, res) => {
+        try {
+            const text = req.body.text;
+            if (typeof text !== 'string') {
+                 res.status(400).send("Invalid input");
+                 return;
+            }
+            fs.writeFileSync('instruction.txt', text, 'utf-8');
+            console.log(global.color('green','[System]\t'), `Instruction updated via web interface`, global.color('green','[OK]'));
+            res.send("Saved.");
+        } catch(e:any) {
+            res.status(500).send(e.toString());
         }
-        fs.writeFileSync('instruction.txt', text, 'utf-8');
-        console.log(global.color('green','[System]\t'), `Instruction updated via web interface`, global.color('green','[OK]'));
-        res.send("Saved.");
-    } catch(e:any) {
-        res.status(500).send(e.toString());
-    }
-});
-app.post('/behaivior', (req, res) => {
-    try {
-        const text = req.body.text;
-        if (typeof text !== 'string') {
-             res.status(400).send("Invalid input");
-             return;
+    });
+    app.post('/behaivior', (req, res) => {
+        try {
+            const text = req.body.text;
+            if (typeof text !== 'string') {
+                 res.status(400).send("Invalid input");
+                 return;
+            }
+            saveBehaiviorsBuild(text);
+            console.log(global.color('green','[System]\t'), `Behaviour updated via web interface`, global.color('green','[OK]'));
+            res.send("Saved.");
+        } catch(e:any) {
+            res.status(500).send(e.toString());
         }
-        saveBehaiviorsBuild(text);
-        console.log(global.color('green','[System]\t'), `Behaviour updated via web interface`, global.color('green','[OK]'));
-        res.send("Saved.");
-    } catch(e:any) {
-        res.status(500).send(e.toString());
-    }
-});
+    });
 
-// Manual TTS Endpoints
-app.get('/say', (req, res) => {
-    const text = req.query.text as string;
-    if (!text) return res.status(400).send("Missing text query param");
+    // Manual TTS Endpoints
+    app.get('/say', (req, res) => {
+        const text = req.query.text as string;
+        if (!text) return res.status(400).send("Missing text query param");
+        
+        // Only run if service exists
+        const tts = TTSService.getInstance(); // It's a singleton, safe to call but might be inert if not init properly outside? 
+        // Actually we rely on the instance created below.
+        if (global.useModules.audio && ttsService) {
+             ttsService.speak(text, 'SAY');
+             res.send(`Saying: ${text}`);
+        } else {
+             res.status(503).send("Audio module disabled");
+        }
+    });
+    app.get('/emotion', (req, res) => {
+        const emotion = req.query.emotion as string;
+        if (displayService && emotion) displayService.setEmotion(emotion);
+        res.send("Show: "+emotion);
+    });
+
+    app.get('/mask-light', (req, res) => {
+        const light = req.query.light as string; // "1" or "0"
+        if (displayService) {
+            displayService.lamp(light === '1');
+            res.send(`Lamp ${light === '1' ? 'ON' : 'OFF'}`);
+        } else {
+             res.status(503).send("Display not active");
+        }
+    });
+
+    app.get('/whisper', (req, res) => {
+        const text = req.query.text as string;
+        if (!text) return res.status(400).send("Missing text query param");
+        
+        if (global.useModules.audio && ttsService) {
+            ttsService.speak(text, 'WHISPER');
+            res.send(`Whispering: ${text}`);
+        } else {
+             res.status(503).send("Audio module disabled");
+        }
+    });
+
+    // Test SoX Endpoint
+    app.get('/test-sox', async (req, res) => {
+        // ... (lines 173-207 omitted from old string)
+    });
+
+}
+
+// --- BMP UPLOAD HANDLER ---
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+const bmp = require('bmp-js');
+
+app.post('/upload-bmp', upload.single('bmp'), (req: any, res) => {
+    if (!req.file) return res.status(400).send("No file uploaded");
     
-    ttsService.speak(text, 'SAY');
-    res.send(`Saying: ${text}`);
-});
-
-app.get('/whisper', (req, res) => {
-    const text = req.query.text as string;
-    if (!text) return res.status(400).send("Missing text query param");
-    
-    ttsService.speak(text, 'WHISPER');
-    res.send(`Whispering: ${text}`);
-});
-
-// Test SoX Endpoint
-app.get('/test-sox', async (req, res) => {
-    if (!fs.existsSync('test.wav')) {
-        return res.status(404).send("test.wav not found in server root. Please place a wav file there.");
-    }
-    
-    // We use a temporary output file for the test
-    const outputPath = 'test_sox_out.wav';
-    
-    // Construct SoX command manually for the test
-    const soxPath = settings.IS_LINUX ? '/usr/bin/sox' : path.resolve(__dirname, 'tools/sox/sox.exe');
-    if (!fs.existsSync(soxPath)) {
-        return res.status(500).send("SoX not found at " + soxPath);
-    }
-
-    const { spawn } = require('child_process');
-    
-    // Allow overriding params via query: /test-sox?settings=pitch%20-300
-    const soxParamsRaw = (req.query.settings as string) || settings.SOX_PARAMS;
-
-    // SoX speed is inverse of Piper length_scale
-    const soxSpeed = (1 / voiceSettings.length_scale).toFixed(4);
-
-    const params = soxParamsRaw
-        .replace('[s]', soxSpeed) 
-        .split(' ')
-        .filter(x => x.length > 0);
-    const args = [
-        'test.wav',
-        outputPath,
-        ...params
-    ];
-
     try {
-        const sox = spawn(soxPath, args);
+        const filePath = req.file.path;
         
-        sox.stderr.on('data', (data:any) => console.log(`[SoX Test] ${data}`));
+        if (displayService) {
+            displayService.processBmp(filePath, 'emotion.hex');
+        } else {
+             // Fallback if display service not active (e.g. non-linux?)
+             // Just delete temp file
+             fs.unlinkSync(filePath);
+             return res.status(503).send("Display Service not active");
+        }
         
-        sox.on('close', (code:number) => {
-             if (code === 0) {
-                 res.download(outputPath, (err) => {
-                     // Cleanup
-                     try{ fs.unlinkSync(outputPath); }catch(e){}
-                 });
-             } else {
-                 res.status(500).send("SoX failed with code " + code);
-             }
-        });
+        // Cleanup temp file
+        fs.unlinkSync(filePath);
+        
+        res.send("BMP Uploaded and Applied.");
+
     } catch (e:any) {
+        console.error("BMP Error:", e);
+        if(req.file) try{ fs.unlinkSync(req.file.path); }catch(e){}
         res.status(500).send(e.toString());
     }
 });
@@ -185,35 +213,49 @@ app.get('/test-sox', async (req, res) => {
 
 // --- GLOBAL STATE ---
 let isGeminiActive = false;
-// let isGeminiAudioActive = true; // Moved to AudioService
 
 // --- SERVICE INITIALIZATION ---
-const videoService = VideoService.getInstance();
-setVideoInstance(videoService);
+let videoService: VideoService | null = null;
+if (global.useModules.video) {
+    videoService = VideoService.getInstance();
+    setVideoInstance(videoService);
+}
 
-const audioService = AudioService.getInstance();
-setAudioInstance(audioService);
+let audioService: AudioService | null = null;
+if (global.useModules.audio) {
+    audioService = AudioService.getInstance();
+    setAudioInstance(audioService);
+}
 
 const geminiService = GeminiService.getInstance();
 setGeminiInstance(geminiService);
 
-const ttsService = TTSService.getInstance();
-setTTSInstance(ttsService);
+let ttsService: TTSService | null = null;
+if (global.useModules.audio) {
+    ttsService = TTSService.getInstance();
+    setTTSInstance(ttsService);
+}
 
-// Auto-start Gemini for headless usage
-/*console.log(global.color('green','[System]\t'), 'Auto-starting Gemini connection...');
-isGeminiActive = true;
-geminiService.connect();*/
+let displayService: DisplayService | null = null;
+if (global.useModules.ledMatrix) {
+    displayService = DisplayService.getInstance();
+    setDisplayInstance(displayService);
+}
 
-videoService.startVideoCapture();
-audioService.startAudioCapture();
+// Start Captures
+if (global.useModules.video && videoService) {
+    videoService.startVideoCapture();
+}
+if (global.useModules.audio && audioService) {
+    audioService.startAudioCapture();
+}
 
 // Wire Gemini text response to Generic Handler
 geminiService.on('command', (cmd: { type: string, content: string }) => {
     const config = getCommandConfig(cmd.type);
-    // Note: config.work() is already called in gemini.service.ts before emitting 'command'
-    // So we only handle cross-service wiring (like TTS) here.
-    if (config.shouldSpeak()!== false) {
+    
+    // TTS Intercept
+    if (global.useModules.audio && ttsService && config.shouldSpeak()!== false) {
         const textToSpeak = config.transformText ? config.transformText(cmd.content) : cmd.content;
         ttsService.speak(textToSpeak, cmd.type);
     }
@@ -222,165 +264,178 @@ geminiService.on('command', (cmd: { type: string, content: string }) => {
 
 // Validates that services are emitting data
 let videoFrameCount = 0;
-videoService.on('frame', () => {
-    videoFrameCount++;
-    if (videoFrameCount % 100 === 0) console.log(global.color('green','[System]\t'),`Processed ${videoFrameCount} video frames`);
-});
+if (global.useModules.video && videoService) {
+    videoService.on('frame', () => {
+        videoFrameCount++;
+        if (videoFrameCount % 100 === 0) console.log(global.color('green','[System]\t'),`Processed ${videoFrameCount} video frames`);
+    });
+}
 
 // --- GLOBAL FORWARDING LOGIC ---
-// We wire the inputs to Gemini permanently here, but control flow via the flag.
-videoService.on('frame', (buffer) => {
-    // Only send video if Audio is active (Push-to-Talk logic) to save tokens
-    if (isGeminiActive && audioService.isGeminiAudioActive) {
-        geminiService.sendVideoFrame(buffer);
-    }
-});
+if (global.useModules.video && videoService) {
+    videoService.on('frame', (buffer) => {
+        // Only send video if Audio is active (Push-to-Talk logic) to save tokens
+        if (isGeminiActive && audioService && audioService.isGeminiAudioActive) {
+            geminiService.sendVideoFrame(buffer);
+        }
+    });
+}
 
-audioService.on('audio', (buffer) => {
-    // Prevent self-hearing: Do not capture audio while TTS 'SAY' is active (outputting to speakers)
-    // WHISPER uses headphones/internal routing so it might be fine, or we can block that too if needed.
-    if (ttsService.isSaying) {
-        return;
-    }
+if (global.useModules.audio && audioService) {
+    audioService.on('audio', (buffer) => {
+        // Prevent self-hearing: Do not capture audio while TTS 'SAY' is active (outputting to speakers)
+        if (ttsService && ttsService.isSaying) {
+            return;
+        }
 
-    if (isGeminiActive && audioService.isGeminiAudioActive) {
-        geminiService.sendAudioChunk(buffer);
-    }
-});
+        if (isGeminiActive && audioService && audioService.isGeminiAudioActive) {
+            geminiService.sendAudioChunk(buffer);
+        }
+    });
+}
 
 // --- WEBSOCKET HANDLING ---
-wss.on('connection', (ws: WebSocket, req: any) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const pathname = url.pathname;
+if (global.useModules.webServer) {
+    wss.on('connection', (ws: WebSocket, req: any) => {
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const pathname = url.pathname;
 
-    // 1. VIDEO MONITOR
-    if (pathname === '/monitor/video') {
-       console.log(global.color('blue','[Client]\t'), 'Video Monitor');
-       
-       const onFrame = (buffer: Buffer) => {
-           if (ws.readyState === WebSocket.OPEN) {
-               ws.send(buffer);
+        // 1. VIDEO MONITOR
+        if (pathname === '/monitor/video') {
+           if (!global.useModules.video || !videoService) {
+               ws.close();
+               return;
            }
-       };
-       videoService.on('frame', onFrame);
+           console.log(global.color('blue','[Client]\t'), 'Video Monitor');
+           
+           const onFrame = (buffer: Buffer) => {
+               if (ws.readyState === WebSocket.OPEN) {
+                   ws.send(buffer);
+               }
+           };
+           videoService.on('frame', onFrame);
 
-       ws.on('close', () => {
-           videoService.off('frame', onFrame);
-           console.log(global.color('yellow','[Client]\t'), 'Video Monitor disconnected');
-       });
-       return;
-    }
-    
-    // 2. AUDIO MONITOR
-    if (pathname === '/monitor/audio') {
-        /*if (!settings.ENABLE_CLIENT_MIC_MONITORING) {
-            ws.close();
-            return;
-        }*/
-
-        console.log(global.color('blue','[Client]\t'), 'Audio Monitor');
+           ws.on('close', () => {
+               videoService?.off('frame', onFrame);
+               console.log(global.color('yellow','[Client]\t'), 'Video Monitor disconnected');
+           });
+           return;
+        }
         
-    const onAudio = (buffer: Buffer) => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(buffer);
-        }
-    };
-    audioService.on('audio', onAudio);
-
-    ws.on('close', () => {
-        audioService.off('audio', onAudio);
-        console.log(global.color('yellow','[Client]\t'),'Audio Monitor disconnected');
-    });
-    return;
-}
-
-// 3. TTS MONITOR (Output Voice)
-if (pathname === '/monitor/tts') {
-    console.log(global.color('blue','[Client]\t'), 'TTS Monitor');
-
-    const onTTS = (buffer: Buffer) => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(buffer);
-        }
-    };
-    ttsService.on('audio', onTTS);
-
-    ws.on('close', () => {
-        ttsService.off('audio', onTTS);
-        console.log(global.color('yellow','[Client]\t'),'TTS Monitor disconnected');
-    });
-    return;
-}
-
-    // 3. SYSTEM CONTROL (Gemini)
-    if (pathname === '/control') {
-        console.log(global.color('blue','[Client]\t'), 'Control');
-
-        // Unified Command Forwarding
-        const onCommand = (cmd: { type: string, content: string }) => {
-            if (ws.readyState === WebSocket.OPEN) {
-                // Forward as generic 'gemini_command'
-                //const config = getCommandConfig(cmd.type);
-                ws.send(JSON.stringify({ 
-                    type: 'gemini_command', 
-                    command: cmd.type, 
-                    text: cmd.content 
-                }));
+        // 2. AUDIO MONITOR
+        if (pathname === '/monitor/audio') {
+            if (!global.useModules.audio || !audioService) {
+                ws.close();
+                return;
             }
-        };
-        geminiService.on('command', onCommand);
 
-        ws.on('message', (data) => {
-            try {
-                const msg = JSON.parse(data.toString());
-                
-                if (msg.type === 'gemini_control') {
-                    if (msg.enabled) {
-                        console.log(global.color('green', '[Control]\t'),"Gemini ENABLED");
-                        isGeminiActive = true;
-                        geminiService.connect();
-                        ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Started' }));
-                    } else {
-                        console.log(global.color('yellow', '[Control]\t'),"Gemini DISABLED");
-                        isGeminiActive = false;
-                        geminiService.disconnect();
-                        ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Ended' }));
-                    }
+            console.log(global.color('blue','[Client]\t'), 'Audio Monitor');
+            
+            const onAudio = (buffer: Buffer) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(buffer);
                 }
+            };
+            audioService.on('audio', onAudio);
 
-                if (msg.type === 'audio_control') {
-                    audioService.isGeminiAudioActive = !!msg.enabled;
-                    console.log(global.color('blue', '[Control]\t'),`Gemini Audio: ${audioService.isGeminiAudioActive ? 'ON' : 'OFF'}`);
-                }
+            ws.on('close', () => {
+                audioService?.off('audio', onAudio);
+                console.log(global.color('yellow','[Client]\t'),'Audio Monitor disconnected');
+            });
+            return;
+        }
 
-                if (msg.type === 'gemini_chat') {
-                    if (isGeminiActive) {
-                        geminiService.sendTextMessage(msg.text);
-                    } else {
-                        // Optionally auto-enable or warn
-                        ws.send(JSON.stringify({ type: 'log', text: 'Error: Enable Gemini first' }));
-                    }
-                }
-
-                if (msg.type === 'keyboard_event') {
-                    if (msg.data && msg.data.key && msg.data.action) {
-                        InputService.getInstance().handleWebInput(msg.data.key, msg.data.action);
-                    }
-                }
-            } catch (err) {
-                console.error("Control msg error:", err);
+        // 3. TTS MONITOR (Output Voice)
+        if (pathname === '/monitor/tts') {
+            if (!global.useModules.audio || !ttsService) {
+                ws.close();
+                return;
             }
-        });
+            console.log(global.color('blue','[Client]\t'), 'TTS Monitor');
 
-        ws.on('close', () => {
-            geminiService.off('command', onCommand);
-            console.log(global.color('yellow', '[Control]\t'),"Control disconnected");
-            // Optional: Auto-disable Gemini if control is lost?
-            // isGeminiActive = false; 
-        });
-        return;
-    }
-});
+            const onTTS = (buffer: Buffer) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(buffer);
+                }
+            };
+            ttsService.on('audio', onTTS);
+
+            ws.on('close', () => {
+                ttsService?.off('audio', onTTS);
+                console.log(global.color('yellow','[Client]\t'),'TTS Monitor disconnected');
+            });
+            return;
+        }
+
+        // 4. SYSTEM CONTROL (Gemini)
+        if (pathname === '/control') {
+            console.log(global.color('blue','[Client]\t'), 'Control');
+
+            // Unified Command Forwarding
+            const onCommand = (cmd: { type: string, content: string }) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ 
+                        type: 'gemini_command', 
+                        command: cmd.type, 
+                        text: cmd.content 
+                    }));
+                }
+            };
+            geminiService.on('command', onCommand);
+
+            ws.on('message', (data) => {
+                try {
+                    const msg = JSON.parse(data.toString());
+                    
+                    if (msg.type === 'gemini_control') {
+                        if (msg.enabled) {
+                            console.log(global.color('green', '[Control]\t'),"Gemini ENABLED");
+                            isGeminiActive = true;
+                            geminiService.connect();
+                            ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Started' }));
+                        } else {
+                            console.log(global.color('yellow', '[Control]\t'),"Gemini DISABLED");
+                            isGeminiActive = false;
+                            geminiService.disconnect();
+                            ws.send(JSON.stringify({ type: 'log', text: 'Gemini Session Ended' }));
+                        }
+                    }
+
+                    if (msg.type === 'audio_control') {
+                        if (global.useModules.audio && audioService) {
+                            audioService.isGeminiAudioActive = !!msg.enabled;
+                            console.log(global.color('blue', '[Control]\t'),`Gemini Audio: ${audioService.isGeminiAudioActive ? 'ON' : 'OFF'}`);
+                        }
+                    }
+
+                    if (msg.type === 'gemini_chat') {
+                        if (isGeminiActive) {
+                            geminiService.sendTextMessage(msg.text);
+                        } else {
+                            ws.send(JSON.stringify({ type: 'log', text: 'Error: Enable Gemini first' }));
+                        }
+                    }
+
+                    if (msg.type === 'keyboard_event') {
+                        if (msg.data && msg.data.key && msg.data.action) {
+                            if (global.useModules.keyboard) {
+                                InputService.getInstance().handleWebInput(msg.data.key, msg.data.action);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Control msg error:", err);
+                }
+            });
+
+            ws.on('close', () => {
+                geminiService.off('command', onCommand);
+                console.log(global.color('yellow', '[Control]\t'),"Control disconnected");
+            });
+            return;
+        }
+    });
+} // End if(global.useModules.webServer)
 
 const PORT = settings.PORT || 5000;
 
@@ -389,16 +444,19 @@ const shutdown = () => {
     console.log('\n'+global.color('red', '[System]\t'), 'Shutting down...');
     
     // Stop Services
-    try { InputService.getInstance().stop(); } catch(e){} 
-    try { TTSService.getInstance().dispose(); } catch(e){}
+    try { if (global.useModules.keyboard) InputService.getInstance().stop(); } catch(e){} 
+    try { if (global.useModules.audio && ttsService) ttsService.dispose(); } catch(e){}
     try { if (geminiService) geminiService.disconnect(); } catch(e){}
-    try { if (videoService) videoService.stopVideoCapture(); } catch(e){}
-    try { if (audioService) audioService.stopMicrophone(); } catch(e){} // Ensure mic is released
+    try { if (global.useModules.video && videoService) videoService.stopVideoCapture(); } catch(e){}
+    try { if (global.useModules.audio && audioService) audioService.stopMicrophone(); } catch(e){} // Ensure mic is released
+    try { if (global.useModules.ledMatrix && displayService) displayService.stop(); } catch(e){} 
 
     // Close HTTP Server
-    server.close(() => {
-        console.log(global.color('green', '[System]\t'), 'HTTP server closed.');
-    });
+    if (global.useModules.webServer && server) {
+        server.close(() => {
+            console.log(global.color('green', '[System]\t'), 'HTTP server closed.');
+        });
+    }
     
     // Kill external processes (safe cleanup)
     const { exec, spawnSync } = require('child_process');
@@ -411,6 +469,8 @@ const shutdown = () => {
         exec('pkill -f "piper"');
         // Aggressively kill gpiomon too
         try { spawnSync('pkill', ['-9', '-f', 'gpiomon'], { stdio: 'ignore' }); } catch(e){}
+        // Kill display script (sudo required usually)
+        try { exec('sudo pkill -f display.py'); } catch(e){}
     }
     
 
@@ -429,9 +489,13 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 process.on('SIGUSR2', shutdown); // Handle nodemon restart signal
 
-server.listen(PORT, () => {
-    console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
-});
+if (global.useModules.webServer) {
+    server.listen(PORT, () => {
+        console.log(global.color('green','[Web]\t\t'), 'Server is running on', global.color('yellow', `http://localhost:${PORT}`));
+    });
+} else {
+    console.log(global.color('yellow','[System]\t'), 'Webserver disabled via modules config.');
+}
 
 
 serviceStart('begin');
@@ -531,9 +595,11 @@ try {
                             console.log(global.color('cyan', '[GPIO]\t\t'),"Switch ON -> Enabling Gemini");
                             isGeminiActive = true;
                             geminiService.connect();
-                            wss.clients.forEach(c => {
-                                if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: true }));
-                            });
+                            if (global.useModules.webServer && wss) {
+                                wss.clients.forEach(c => {
+                                    if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: true }));
+                                });
+                            }
                         }
                     } 
                     // rising -> Transition to HIGH (1) -> Inactive
@@ -543,9 +609,11 @@ try {
                             console.log(global.color('yellow', '[GPIO]\t\t'),"Switch OFF -> Disabling Gemini");
                             isGeminiActive = false;
                             geminiService.disconnect();
-                            wss.clients.forEach(c => {
-                                if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: false }));
-                            });
+                            if (global.useModules.webServer && wss) {
+                                wss.clients.forEach(c => {
+                                    if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: false }));
+                                });
+                            }
                         }
                     }
                 });

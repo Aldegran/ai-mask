@@ -19,11 +19,11 @@
 * **State Management:** Local state (JSON/Redis) for context persistence between reconnections.
 
 ## 4. Hardware Configuration (Target)
-* **Compute:** Raspberry Pi 5 (Active Cooler).
+* **Compute:** Raspberry Pi 4b (Active Cooler).
 * **Vision:** Raspberry Pi Camera Module 3 (Wide).
 * **Audio In:** USB Lavalier Mic (Maono).
 * **Audio Out:** Bone Conduction Headphones (output via FFmpeg filter).
-* **Visual Output:** 12x48 LED Matrix (Eyes) — displays emotions.
+* **Visual Output:** 16x32 LED Matrix (Eyes) — displays emotions.
 * **Controls:** Glove with buttons (PTT, PTV, Meta).
 
 ## 5. Key Functionality
