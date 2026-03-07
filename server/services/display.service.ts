@@ -11,6 +11,8 @@ export class DisplayService {
     private static instance: DisplayService;
     private pythonProcess: ChildProcess | null = null;
     private isRunning = false;
+    private currentEmotion: string = 'neutral';
+    private emotionTimeout: NodeJS.Timeout | null = null;
 
     private constructor() {
         this.init();
@@ -61,40 +63,79 @@ export class DisplayService {
             console.log(global.color('yellow', '[Display]\t'), `Process exited with code ${code}`);
             this.isRunning = false;
         });
+        this.setEmotion('neutral'); // Default emotion on start
     }
 
     public setEmotion(emotion: string) {
-        // Map emotion to a color index from the palette
-        // 0-15: Standard Colors
-        // 2=Green, 9=Red, 12=Blue, 11=Yellow, 13=Magenta
-        
-        let colorIdx = 0; 
-        
-        switch (emotion.toLowerCase()) {
-            case 'angry': colorIdx = 9; break; // Red
-            case 'speaking': colorIdx = 13; break; // Magenta
-            case 'listening': colorIdx = 12; break; // Blue
-            case 'thinking': colorIdx = 11; break; // Yellow
-            case 'idle': colorIdx = 2; break; // Green (Dim?)
-            case 'neutral': colorIdx = 2; break; 
-            default: colorIdx = 7; // Gray
-        }
-
-        // Create a solid color frame for now
-        // TODO: Create bitmap patterns for eyes/mouths
-        const frame = Buffer.alloc(512, colorIdx);
-        
-        // Example: Draw simple "Eyes" if angry
-        if (emotion === 'angry') {
-             // Set some pixels to black (0) to simulate eyes
-             // Row 10..14, Col 4..6 and 9..11
-            for(let r=8; r<=12; r++) {
-               for(let c=3; c<=6; c++) frame[r*16 + c] = 0; // Left Eye
-               for(let c=9; c<=12; c++) frame[r*16 + c] = 0; // Right Eye
+        let filename = emotion.toLowerCase();
+        const basePath = path.join(__dirname, '../tools/display');
+        switch (emotion) {
+            case 'sad': filename = 'eyesSad'; break;
+            case 'joy': filename = 'eyesHappy'; break;
+            case 'anger': filename = 'eyesF'; break;
+            case 'stun': filename = 'redCircle'; break;
+            case 'surprise': filename = 'eyesSurprise'; break;
+            case 'processing': filename = 'eyes'; break;
+            case 'none': 
+            case 'neutral': {
+                this.runRandomEmotion();
+                filename = 'eyes'; break;
             }
+            case 'clip': filename = 'eyesClip'; break;
+            case 'cool': filename = 'glasses'; break;
+            case 'eyesRandom': {
+              switch (Math.floor(Math.random() * 10)) {
+                case 0: filename = 'eyesR'; break;
+                case 1: filename = 'eyesL'; break;
+                case 2: filename = 'eyesT'; break;
+                case 3: filename = 'eyesTL'; break;
+                case 4: filename = 'eyesTR'; break;
+                default: filename = 'eyes'; break;
+              }  
+            } break;
+            default: filename = 'eyes'; break;
         }
-        
-        this.drawFrame(frame);
+        this.currentEmotion = emotion;
+        if(emotion !== 'neutral' && emotion !== 'eyesRandom') {
+            this.stopRandomEmotion();
+        }
+        // Check if specific file exists first
+        let finalPath = path.join(basePath, `${filename}.hex`);
+
+        // If not found, check switch mapping or fallback
+        if (!fs.existsSync(finalPath)) {
+            console.error(global.color('red', '[Display]\t'), `No emotion ${emotion}`);
+            return;
+        }
+        try {
+            const frameData = fs.readFileSync(finalPath);
+            if (frameData.length === 512) {
+                this.drawFrame(frameData);
+                // console.log(global.color('green', '[Display]\t'), `Loaded emotion: ${filename}`);
+                return;
+            }
+        } catch (e) {
+            console.error(global.color('red', '[Display]\t'), `Error reading ${filename}`, e);
+        }
+    }
+
+    public runRandomEmotion() {
+        this.stopRandomEmotion(); // Ensure no duplicate intervals
+        this.emotionTimeout = setInterval(async () => {
+            if(Math.floor(Math.random() * 5) === 0) {
+                const oldEmotion = this.currentEmotion;
+                this.setEmotion('clip');
+                await new Promise(resolve => setTimeout(resolve, 200));
+                this.setEmotion(oldEmotion);
+            } else this.setEmotion('eyesRandom');
+        }, 3000);
+    }
+
+    public stopRandomEmotion() {
+        if(this.emotionTimeout) {
+            clearInterval(this.emotionTimeout);
+            this.emotionTimeout = null;
+        }
     }
 
     public setColorGeneric(index: number) {
@@ -253,10 +294,12 @@ export class DisplayService {
                 }
             }
         }
-        
+        this.stopRandomEmotion();
         // 1. Send to Matrix immediately
         this.drawFrame(processedPixels);
-        
+        setTimeout(() => {
+            this.runRandomEmotion(); // Resume random emotions after a short delay
+        }, 10000); // Small delay to ensure frame is sent before file operations
         // 2. Save to file
         const savePath = path.join(__dirname, '../tools/display', targetHexName);
         fs.writeFileSync(savePath, processedPixels);
