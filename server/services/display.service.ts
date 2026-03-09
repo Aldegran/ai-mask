@@ -96,7 +96,7 @@ export class DisplayService {
             default: filename = 'eyes'; break;
         }
         this.currentEmotion = emotion;
-        if(emotion !== 'neutral' && emotion !== 'eyesRandom') {
+        if(emotion !== 'neutral' && emotion !== 'eyesRandom' && emotion !== 'clip') {
             this.stopRandomEmotion();
         }
         // Check if specific file exists first
