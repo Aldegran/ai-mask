@@ -345,29 +345,7 @@ if (global.useModules.webServer) {
             return;
         }
 
-        // 3. TTS MONITOR (Output Voice)
-        if (pathname === '/monitor/tts') {
-            if (!global.useModules.audio || !ttsService) {
-                ws.close();
-                return;
-            }
-            console.log(global.color('blue','[Client]\t'), 'TTS Monitor');
-
-            const onTTS = (buffer: Buffer) => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(buffer);
-                }
-            };
-            ttsService.on('audio', onTTS);
-
-            ws.on('close', () => {
-                ttsService?.off('audio', onTTS);
-                console.log(global.color('yellow','[Client]\t'),'TTS Monitor disconnected');
-            });
-            return;
-        }
-
-        // 4. SYSTEM CONTROL (Gemini)
+        // 3. SYSTEM CONTROL (Gemini)
         if (pathname === '/control') {
             console.log(global.color('blue','[Client]\t'), 'Control');
 

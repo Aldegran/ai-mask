@@ -34,26 +34,18 @@ class TTSLane {
     private queue: string[] = [];
     private isProcessing: boolean = false;
     private currentResolve: Function | null = null;
-    private currentBuffer: Buffer[] = [];
     private hasReceivedFirstChunk: boolean = false;
     
-    // Output mode matches global setting roughly, but lane specific
-    // Actually mode is global.
-    
-    private emitWeb: (buf: Buffer) => void;
     private applyVoiceChanger: boolean;
 
-    constructor(id: string, device: string | null, volume: number, applyVoiceChanger: boolean, emitWebCb: (buf: Buffer) => void) {
+    constructor(id: string, device: string | null, volume: number, applyVoiceChanger: boolean) {
         this.id = id;
         this.device = device;
         this.volume = volume;
         this.applyVoiceChanger = applyVoiceChanger;
-        this.emitWeb = emitWebCb;
         
         this.ensurePiper();
-        if (process.env.AUDIO_OUTPUT_MODE !== 'web') {
-             setTimeout(() => this.ensureSink(), 500);
-        }
+        setTimeout(() => this.ensureSink(), 500);
     }
 
     // --- PIPER ---
@@ -104,7 +96,6 @@ class TTSLane {
 
     // --- SINK ---
     private ensureSink() {
-        if (process.env.AUDIO_OUTPUT_MODE === 'web') return;
         if (this.sinkProcess || this.isSinkLaunching || !this.device) return;
         
         const soxExe = settings.IS_LINUX ? '/usr/bin/sox' : 'sox';
@@ -161,29 +152,16 @@ class TTSLane {
            console.log(global.color('magenta', `[TTS ${this.id}]\t`), `${time}\tGot first audio chunk. Start playing...`);
         }
         
-        const mode = (process.env.AUDIO_OUTPUT_MODE === 'web') ? 'web' : 'local';
-        
-        if (mode === 'local') {
-            if (this.sinkProcess && this.sinkProcess.stdin && !this.sinkProcess.killed) {
-                try { this.sinkProcess.stdin.write(chunk); } catch(e) {}
-            }
-        } else {
-            this.currentBuffer.push(chunk);
+        if (this.sinkProcess && this.sinkProcess.stdin && !this.sinkProcess.killed) {
+            try { this.sinkProcess.stdin.write(chunk); } catch(e) {}
         }
     }
 
     private finishCurrentUtterance() {
         if (!this.currentResolve) return;
         
-        const mode = (process.env.AUDIO_OUTPUT_MODE === 'web') ? 'web' : 'local';
-        if (mode === 'web') {
-            const audioBuffer = Buffer.concat(this.currentBuffer);
-            this.emitWeb(audioBuffer);
-        }
-        
         this.currentResolve(Buffer.alloc(0));
         this.currentResolve = null;
-        this.currentBuffer = [];
         this.processQueue(); // Next
     }
 
@@ -222,7 +200,7 @@ class TTSLane {
     private async synthesize(text: string): Promise<any> {
         return new Promise((resolve) => {
             this.ensurePiper();
-            if (process.env.AUDIO_OUTPUT_MODE !== 'web') this.ensureSink();
+            this.ensureSink();
 
             if (!this.piperProcess) {
                 resolve(null);
@@ -230,7 +208,6 @@ class TTSLane {
             }
 
             this.currentResolve = resolve;
-            this.currentBuffer = [];
             this.hasReceivedFirstChunk = false;
             
             try {
@@ -268,8 +245,7 @@ export class TTSService extends EventEmitter {
             'SAY', 
             settings.EXT_SPEAKER_NAME, 
             settings.EXT_VOLUME || 1.0, 
-            true, // Apply Effects
-            (buf) => this.emitWebAudio(buf)
+            true // Apply Effects
         );
         
         // WHISPER: Clean Voice (No Effects)
@@ -277,8 +253,7 @@ export class TTSService extends EventEmitter {
             'WHISPER', 
             settings.PI_SPEAKER_NAME, 
             settings.PI_VOLUME || 1.0, 
-            false, // NO Effects
-            (buf) => this.emitWebAudio(buf)
+            false // NO Effects
         );
     }
 
@@ -299,26 +274,6 @@ export class TTSService extends EventEmitter {
         if (this.lanes[target]) {
             this.lanes[target].speak(text);
         }
-    }
-
-    private emitWebAudio(audioBuffer: Buffer) {
-       const wavHeader = Buffer.alloc(44);
-       wavHeader.write('RIFF', 0);
-       wavHeader.writeUInt32LE(36 + audioBuffer.length, 4);
-       wavHeader.write('WAVE', 8);
-       wavHeader.write('fmt ', 12);
-       wavHeader.writeUInt32LE(16, 16);
-       wavHeader.writeUInt16LE(1, 20);
-       wavHeader.writeUInt16LE(1, 22);
-       wavHeader.writeUInt32LE(22050, 24);
-       wavHeader.writeUInt32LE(22050 * 1 * 16 / 8, 28);
-       wavHeader.writeUInt16LE(1 * 16 / 8, 32);
-       wavHeader.writeUInt16LE(16, 34);
-       wavHeader.write('data', 36);
-       wavHeader.writeUInt32LE(audioBuffer.length, 40);
-
-       const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
-       this.emit('audio', wavBuffer); 
     }
 
     public dispose() {

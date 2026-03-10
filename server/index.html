@@ -40,11 +40,7 @@
                     </label>
                     <label style="display: flex; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
                         <input type="checkbox" id="sendAudioCk" checked style="width: 20px; height: 20px;">
-                        SEND AUDIO
-                    </label>
-                    <label id="muteMicContainer" style="align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
-                        <input type="checkbox" id="muteMicCk" style="width: 20px; height: 20px;" checked>
-                        MUTE MIC ECHO
+                        PI MIC TO GEMINI
                     </label>
 
                     <label style="display: flex; align-items: center; gap: 10px; font-size: 18px; cursor: pointer; user-select: none;">
@@ -89,7 +85,6 @@
         <script>
             const startBtn = document.getElementById('startAudioBtn');
             const useGeminiCk = document.getElementById('useGeminiCk');
-            const muteMicCk = document.getElementById('muteMicCk');
             const lampCk = document.getElementById('lampCk');
             const operatorMode = document.getElementById('operatorMode');
             const statusDiv = document.getElementById('status');
@@ -99,7 +94,6 @@
             const instructionArea = document.getElementById('instructionArea');
             const behaviourArea = document.getElementById('behaviourArea');
             const saveBehBtn = document.getElementById('saveBehBtn');
-            const muteMicContainer = document.getElementById('muteMicContainer');
             const operatorSoundContainer = document.getElementById('operatorSoundContainer');
             const soxInput = document.getElementById('soxParamsInput');
             const testSoxBtn = document.getElementById('testSoxBtn');
@@ -108,7 +102,6 @@
             // --- SETTINGS FETCH ---
             fetch('/settings').then(r => r.json()).then(s => {
                 if (s.ENABLE_CLIENT_MIC_MONITORING) {
-                    muteMicContainer.style.display = 'flex';
                     operatorSoundContainer.style.display = 'flex';
                 }
                 // Pre-fill SoX params if available, unless user edited
@@ -451,23 +444,8 @@
                         nextTime += buffer.duration;
                     };
 
-                    // 5. TTS Monitor (Voice Response) - Mixes with Mic
-                    const ttsSocket = new WebSocket(protocol + '//' + window.location.host + '/monitor/tts');
-                    ttsSocket.binaryType = 'arraybuffer';
-                    ttsSocket.onmessage = (event) => {
-                        if (audioCtx.state === 'suspended') audioCtx.resume();
-                        
-                        // WAV file header is 44 bytes. Simple skip or decode?
-                        // decodeAudioData is async and handles full WAV files perfectly.
-                        // Since Piper sends full WAV files as blobs.
-                        audioCtx.decodeAudioData(event.data, (buffer) => {
-                            const source = audioCtx.createBufferSource();
-                            source.buffer = buffer;
-                            source.connect(audioCtx.destination);
-                            source.start(0); // Play immediately mixed
-                            //log("Playing TTS Audio...");
-                        }, (err) => console.error("Error decoding TTS audio", err));
-                    };
+                    // 5. TTS Monitor (Voice Response) REMOVED
+                    // We no longer route TTS audio through the browser.
 
                     statusDiv.innerText = "System Active. Ready to use Gemini.";
                     statusDiv.style.color = "#0f0";
@@ -509,11 +487,6 @@
                 if (validKeys.includes(e.key)) {
                     if(e.key === ' ') e.preventDefault(); 
                     console.log("Key sent: " + e.key);
-                    
-                    // Auto-unmute on 'A' press if enabled
-                    if (e.key === '1') {
-                        muteMicCk.checked = false;
-                    }
 
                     if(e.key === 'Enter' || e.key === ' ') {
                         if(useGeminiCk.checked) videoContainer.style.borderColor = "#f00";
@@ -536,10 +509,6 @@
                 if (validKeys.includes(e.key)) {
                     if(e.key === ' ') e.preventDefault();
                     
-                    // Auto-mute on 'A' release
-                    if (e.key === '1') {
-                        muteMicCk.checked = true;
-                    }
                     videoContainer.style.borderColor = "#444";
 
                     geminiControlSocket.send(JSON.stringify({
