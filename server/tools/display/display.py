@@ -5,7 +5,7 @@ import time
 import struct
 
 # --- CONFIGURATION (Pi 4B) ---
-PIN = board.D18 
+PIN = board.D21 
 WIDTH = 16
 HEIGHT = 32
 NUM_PIXELS = WIDTH * HEIGHT

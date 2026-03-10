@@ -35,6 +35,7 @@ class TTSLane {
     private isProcessing: boolean = false;
     private currentResolve: Function | null = null;
     private currentBuffer: Buffer[] = [];
+    private hasReceivedFirstChunk: boolean = false;
     
     // Output mode matches global setting roughly, but lane specific
     // Actually mode is global.
@@ -154,6 +155,12 @@ class TTSLane {
     // --- PROCESSING ---
     
     private handleAudioChunk(chunk: Buffer) {
+        if (!this.hasReceivedFirstChunk) {
+           this.hasReceivedFirstChunk = true;
+           const time = `${new Date().toLocaleTimeString()}:${new Date().getMilliseconds()}`;
+           console.log(global.color('magenta', `[TTS ${this.id}]\t`), `${time}\tGot first audio chunk. Start playing...`);
+        }
+        
         const mode = (process.env.AUDIO_OUTPUT_MODE === 'web') ? 'web' : 'local';
         
         if (mode === 'local') {
@@ -182,8 +189,20 @@ class TTSLane {
 
     public speak(text: string) {
         if (!text || text.trim().length === 0) return;
-        console.log(global.color('cyan', `[TTS ${this.id}]\t`), `Queueing text: "${text.substring(0,30)}..."`);
-        this.queue.push(text);
+        if(settings.SPIT_TEXT){
+            // Разбиваем текст на предложения (по ., ! или ?) для ускорения первого звука
+            const chunks = text.split(/(?<=[.?!])\s+/).filter(c => c.trim().length > 0);
+            
+            for (const chunk of chunks) {
+                const time = `${new Date().toLocaleTimeString()}:${new Date().getMilliseconds()}`;
+                console.log(global.color('cyan', `[TTS ${this.id}]\t`), `${time}\tQueueing text: "${chunk.substring(0,30)}..."`);
+                this.queue.push(chunk.replace('.', '').trim());
+            }
+        } else {
+            const time = `${new Date().toLocaleTimeString()}:${new Date().getMilliseconds()}`;
+            console.log(global.color('cyan', `[TTS ${this.id}]\t`), `${time}\tQueueing text: "${text.substring(0,30)}..."`);
+            this.queue.push(text);
+        }
         this.processQueue();
     }
 
@@ -212,6 +231,7 @@ class TTSLane {
 
             this.currentResolve = resolve;
             this.currentBuffer = [];
+            this.hasReceivedFirstChunk = false;
             
             try {
                 this.piperProcess.stdin?.write(JSON.stringify({ text }) + '\n');
