@@ -16,6 +16,7 @@ import { VideoService } from './services/video.service';
 import { TTSService, voiceSettings } from './services/tts.service';
 import { InputService } from './services/input.service';
 import { DisplayService } from './services/display.service';
+import { OledService } from './services/oled.service';
 import settings from "./config/index";
 import { 
     getCommandConfig, 
@@ -43,6 +44,7 @@ if (process.platform === 'linux') {
         execSync('pkill -f ffmpeg || true');
         execSync('pkill -f rpicam-vid || true');
         execSync('pkill -f libcamera-vid || true');
+        execSync('pkill -f oled.py || true');
     } catch (e) {
         // Ignore errors
     }
@@ -58,6 +60,7 @@ global.useModules = {
     keyboard: true,
     ledMatrix: true,
     webServer: true,
+    oled: true,
 }
 
 if (global.useModules.keyboard) {
@@ -240,6 +243,15 @@ let displayService: DisplayService | null = null;
 if (global.useModules.ledMatrix) {
     displayService = DisplayService.getInstance();
     setDisplayInstance(displayService);
+}
+
+let oledService: OledService | null = null;
+if (global.useModules.oled) {
+    try {
+        oledService = OledService.getInstance();
+    } catch (e) {
+        console.error("Failed to start OLED service:", e);
+    }
 }
 
 // Start Captures
@@ -428,6 +440,7 @@ const shutdown = () => {
     try { if (global.useModules.video && videoService) videoService.stopVideoCapture(); } catch(e){}
     try { if (global.useModules.audio && audioService) audioService.stopMicrophone(); } catch(e){} // Ensure mic is released
     try { if (global.useModules.ledMatrix && displayService) displayService.stop(); } catch(e){} 
+    try { if (global.useModules.oled && oledService) oledService.stop(); } catch(e){} 
 
     // Close HTTP Server
     if (global.useModules.webServer && server) {
@@ -449,6 +462,7 @@ const shutdown = () => {
         try { spawnSync('pkill', ['-9', '-f', 'gpiomon'], { stdio: 'ignore' }); } catch(e){}
         // Kill display script (sudo required usually)
         try { exec('sudo pkill -f display.py'); } catch(e){}
+        try { exec('pkill -f oled.py'); } catch(e){}
     }
     
 
