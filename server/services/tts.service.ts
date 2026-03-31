@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import settings from '../config/index';
+import { OledService } from './oled.service';
 
 // Configuration for Voice
 export const voiceSettings = {
@@ -150,6 +151,7 @@ class TTSLane {
            this.hasReceivedFirstChunk = true;
            const time = `${new Date().toLocaleTimeString()}:${new Date().getMilliseconds()}`;
            console.log(global.color('magenta', `[TTS ${this.id}]\t`), `${time}\tGot first audio chunk. Start playing...`);
+           OledService.getInstance().TTSStatus(false);
         }
         
         if (this.sinkProcess && this.sinkProcess.stdin && !this.sinkProcess.killed) {
@@ -272,6 +274,7 @@ export class TTSService extends EventEmitter {
     public speak(text: string, type: string) {
         const target = (type === 'WHISPER') ? 'WHISPER' : 'SAY';
         if (this.lanes[target]) {
+            OledService.getInstance().TTSStatus(true);
             this.lanes[target].speak(text);
         }
     }

@@ -4,6 +4,7 @@ import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import settings from "../config/index";
+import { OledService } from './oled.service';
 
 const bmp = require('bmp-js');
 
@@ -74,7 +75,7 @@ export class DisplayService {
             case 'joy': filename = 'eyesHappy'; break;
             case 'anger': filename = 'eyesF'; break;
             case 'stun': filename = 'redCircle'; break;
-            case 'surprise': filename = 'eyesSurprise'; break;
+            case 'surprise': filename = 'eyesSurpri'; break;
             case 'processing': filename = 'eyes'; break;
             case 'none': 
             case 'neutral': {
@@ -95,6 +96,7 @@ export class DisplayService {
             } break;
             default: filename = 'eyes'; break;
         }
+        OledService.getInstance().emonion(emotion === 'neutral' || emotion === 'eyesRandom' ? "          " : emotion); // Clear text for neutral
         this.currentEmotion = emotion;
         if(emotion !== 'neutral' && emotion !== 'eyesRandom' && emotion !== 'clip') {
             this.stopRandomEmotion();

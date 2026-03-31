@@ -4,6 +4,7 @@ import WebSocket from 'ws';
 import { config } from 'dotenv';
 import fs from 'fs';
 import { EventEmitter } from 'events';
+import { OledService } from './oled.service';
 
 /**
  * КОДЫ ЗАКРЫТИЯ WEBSOCKET GEMINI И ОБРАБОТКА ОШИБОК
@@ -96,6 +97,7 @@ export class GeminiService extends EventEmitter {
         this.socket = new WebSocket(uri);
 
         this.socket.on('open', () => {
+            OledService.getInstance().AIStatus(true);
             console.log(global.color('green', "Connected to Gemini"));
             this.isConnected = true;
             this.usedTokens = 0;
@@ -115,6 +117,7 @@ export class GeminiService extends EventEmitter {
         });
 
         this.socket.on('close', (code, reason) => {
+            OledService.getInstance().AIStatus(false);
             if(code === 1000) {
                     console.log(global.color('yellow', '[Gemini]\t'),"Socket closed normally.");
             } else {

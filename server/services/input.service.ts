@@ -3,6 +3,7 @@ declare const global: GlobalThis;
 import fs from 'fs';
 import { keyboardActions } from '../config/commands';
 import settings from "../config/index";
+import { OledService } from './oled.service';
 
 interface InputEvent {
     time: { tv_sec: number; tv_usec: number };
@@ -44,6 +45,9 @@ export class InputService {
 
     private async init() {
         if (this.isScanning || this.isStopped) return;
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         this.isScanning = true;
 
         if (!settings.IS_LINUX) {
@@ -56,10 +60,12 @@ export class InputService {
         
         if (devicePaths.length > 0) {
             console.log(global.color('green',`[KeyboardBT]\t`),'Found devices');
+            OledService.getInstance().keyboardStatus(true,false);
             devicePaths.forEach(path => this.startReading(path));
             this.isScanning = false;
         } else {
             console.log(global.color('yellow',`[KeyboardBT]\t`),'VR BOX remote not found. Waiting/Retrying...');
+            OledService.getInstance().keyboardStatus(true,true);
             setTimeout(() => {
                 this.isScanning = false;
                 this.init();

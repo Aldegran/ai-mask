@@ -10,13 +10,13 @@ import path from 'path';
 import color from './colorized';
 global.color = color;
 global.log = console.log;
+import { OledService } from './services/oled.service';
 import { GeminiService } from './services/gemini.service';
 import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
 import { TTSService, voiceSettings } from './services/tts.service';
 import { InputService } from './services/input.service';
 import { DisplayService } from './services/display.service';
-import { OledService } from './services/oled.service';
 import settings from "./config/index";
 import { 
     getCommandConfig, 
@@ -25,6 +25,7 @@ import {
     setVideoInstance,
     setTTSInstance,
     setDisplayInstance,
+    setOledInstance,
     serviceStart, 
     saveBehaiviorsBuild, 
     buildInstruction, 
@@ -156,6 +157,7 @@ if (global.useModules.webServer) {
         const light = req.query.light as string; // "1" or "0"
         if (displayService) {
             displayService.lamp(light === '1');
+            if(oledService) oledService.lampStatus(light === '1');
             res.send(`Lamp ${light === '1' ? 'ON' : 'OFF'}`);
         } else {
              res.status(503).send("Display not active");
@@ -218,6 +220,15 @@ app.post('/upload-bmp', upload.single('bmp'), (req: any, res) => {
 let isGeminiActive = false;
 
 // --- SERVICE INITIALIZATION ---
+let oledService: OledService | null = null;
+if (global.useModules.oled) {
+    try {
+        oledService = OledService.getInstance();
+        setOledInstance(oledService);
+    } catch (e) {
+        console.error("Failed to start OLED service:", e);
+    }
+}
 let videoService: VideoService | null = null;
 if (global.useModules.video) {
     videoService = VideoService.getInstance();
@@ -245,14 +256,6 @@ if (global.useModules.ledMatrix) {
     setDisplayInstance(displayService);
 }
 
-let oledService: OledService | null = null;
-if (global.useModules.oled) {
-    try {
-        oledService = OledService.getInstance();
-    } catch (e) {
-        console.error("Failed to start OLED service:", e);
-    }
-}
 
 // Start Captures
 if (global.useModules.video && videoService) {

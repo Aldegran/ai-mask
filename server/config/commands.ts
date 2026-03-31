@@ -6,6 +6,7 @@ import type { AudioService } from '../services/audio.service';
 import type { VideoService } from '../services/video.service';
 import type { TTSService } from '../services/tts.service';
 import type { DisplayService } from '../services/display.service';
+import type { OledService } from '../services/oled.service';
 import fs from 'fs';
 
 let geminiService: GeminiService | null = null;
@@ -13,7 +14,11 @@ let audioService: AudioService | null = null;
 let videoService: VideoService | null = null;
 let ttsService: TTSService | null = null;
 let displayService: DisplayService | null = null;
+let oledService: OledService | null = null;
 
+export function setOledInstance(instance: OledService) {
+    oledService = instance;
+}
 export function setGeminiInstance(instance: GeminiService) {
     geminiService = instance;
 }
@@ -129,6 +134,7 @@ export const services: Record<string, ServicesConfig> = {
             if (geminiService) {
                 const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
                 geminiService.sendTextMessage(`[TIME: ${time}]`);
+                if (oledService) oledService.sessionTime(time);
             }
         },
         interval: 60, // Every minute
@@ -156,8 +162,11 @@ export const commands: Record<string, CommandConfig> = {
         color: 'green'
     },
     'THINK': {
-        shouldSpeak: () => settings.TTS_FOR === "THINK" ? 'think' : false,
-        color: 'blue'
+        shouldSpeak: () => false,//settings.TTS_FOR === "THINK" ? 'think' : false,
+        color: 'blue',
+        work: (text) => {
+            if (oledService) oledService.thinkStatus(text);
+        }
     },
     'EMOTION': {
         shouldSpeak: () => false,
@@ -222,11 +231,13 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
     "BOTTOM": {
         press: () => {
             if (audioService) audioService.isGeminiAudioActive = true;
+            if (oledService) oledService.textToAudioParse(true);
         },
         release: () => {
             if (audioService) audioService.isGeminiAudioActive = false;
             // Send silence to trigger VAD End-of-Turn immediately
             if (geminiService) geminiService.sendSilence();
+            if (oledService) oledService.textToAudioParse(false);
         }
     },
     "TOP": {
@@ -234,6 +245,7 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
             if (geminiService && audioService) {
               audioService.isGeminiAudioActive = true;
               geminiService.sendTextMessage("[OWNER_START]");
+              if (oledService) oledService.textToAudioDirect(true);
             }
         },
         release: () => {
@@ -241,6 +253,7 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
               geminiService.sendTextMessage("[OWNER_STOP]");
               audioService.isGeminiAudioActive = false;
               geminiService.sendSilence();
+              if (oledService) oledService.textToAudioDirect(false);
             }
         }
     },
@@ -248,12 +261,14 @@ export const keyboardActions: Record<string, KeyboardConfig> = {
         press: () => {
              // Voice Changer Passthrough Mode (Failsafe)
              if (audioService) {
-                 audioService.enableVoiceChanger(true);
+                audioService.enableVoiceChanger(true);
+                if (oledService) oledService.voiceChanger(true);
              }
         },
         release: () => {
              if (audioService) {
-                 audioService.enableVoiceChanger(false);
+                audioService.enableVoiceChanger(false);
+                if (oledService) oledService.voiceChanger(false);
              }
         }
     },
