@@ -56,6 +56,8 @@ import settings from '../config/index';
 
 config();
 
+import path from 'path';
+
 export class GeminiService extends EventEmitter {
     private static instance: GeminiService;
     private socket: WebSocket | null = null;
@@ -278,8 +280,9 @@ export class GeminiService extends EventEmitter {
         let pingBuffer: Buffer | null = null;
         try {
             // Using synchronous read is fine for a 10s interval
-            if (fs.existsSync('ping.wav')) {
-                 pingBuffer = fs.readFileSync('ping.wav');
+            const pingPath = path.join(settings.BASE_DIR, 'ping.wav');
+            if (fs.existsSync(pingPath)) {
+                 pingBuffer = fs.readFileSync(pingPath);
             } else {
                  console.log(global.color('yellow', '[System Ping]'), "ping.wav not found, skipping audio trigger.");
             }

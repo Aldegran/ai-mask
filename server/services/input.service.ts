@@ -210,7 +210,8 @@ export class InputService {
             
             if(keyName){
               if (action !== 'REPEAT') { // Clean up logs, ignore repeats if needed
-                console.log(global.color('cyan',`[INPUT]\t`),`${keyName} [${action}]`);
+                const time = `${new Date().toLocaleTimeString()}:${new Date().getMilliseconds()}`;
+                console.log(time, global.color('cyan',`[INPUT]\t`),`${keyName} [${action}]`);
                 keyboardActions[ keyName ][value ? 'press' : 'release']();
               }
             } else {

@@ -359,7 +359,7 @@
                         }
                     }
                     
-                    if (msg.type === 'gemini_control_sync') {
+                    if (msg.type === 'llm_control_sync') {
                         // Sync state from physical switch (Server -> Client)
                         useGeminiCk.checked = msg.enabled;
                         updateGeminiAudioState(); // Update dependent audio state

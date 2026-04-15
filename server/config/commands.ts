@@ -8,6 +8,7 @@ import type { TTSService } from '../services/tts.service';
 import type { DisplayService } from '../services/display.service';
 import type { OledService } from '../services/oled.service';
 import fs from 'fs';
+import path from 'path';
 
 let geminiService: GeminiService | null = null;
 let audioService: AudioService | null = null;
@@ -43,10 +44,12 @@ interface ServicesConfig {
 
 export let behaiviorText = "";
 
+
 function loadBehavior() {
     try {
-        if (fs.existsSync('behavior.txt')) {
-            behaiviorText = fs.readFileSync('behavior.txt', 'utf-8').trim();
+        const filePath = path.join(settings.BASE_DIR, 'behavior.txt');
+        if (fs.existsSync(filePath)) {
+            behaiviorText = fs.readFileSync(filePath, 'utf-8').trim();
         }
     } catch (e) {
         console.error("Error loading behavior.txt", e);
@@ -57,7 +60,8 @@ loadBehavior();
 export function saveBehaiviorsBuild(text:string): void {
   try {
       behaiviorText = text;
-      fs.writeFileSync('behavior.txt', text, 'utf-8');
+      const filePath = path.join(settings.BASE_DIR, 'behavior.txt');
+      fs.writeFileSync(filePath, text, 'utf-8');
       console.log(global.color('green', '[System]\t'), "Behavior settings updated.");
   } catch (e) {
       console.error("Error saving behavior.txt", e);
@@ -67,10 +71,11 @@ export function saveBehaiviorsBuild(text:string): void {
 export function buildInstruction(): string {
   let systemInstructionText = "";
   try {
-      if (fs.existsSync('instruction.txt')) {
-          systemInstructionText = fs.readFileSync('instruction.txt', 'utf-8').trim();
+      const filePath = path.join(settings.BASE_DIR, 'instruction.txt');
+      if (fs.existsSync(filePath)) {
+          systemInstructionText = fs.readFileSync(filePath, 'utf-8').trim();
       } else {
-          console.warn("instruction.txt not found, using default.");
+          console.warn("instruction.txt not found, using default. Checked:", filePath);
           systemInstructionText = "You are a helpful AI.";
       }
   } catch (e) {
@@ -80,8 +85,9 @@ export function buildInstruction(): string {
   let contextText = "";
   loadBehavior();
   try {
-      if (fs.existsSync('context.txt')) {
-          contextText = fs.readFileSync('context.txt', 'utf-8').trim();
+      const filePath = path.join(settings.BASE_DIR, 'context.txt');
+      if (fs.existsSync(filePath)) {
+          contextText = fs.readFileSync(filePath, 'utf-8').trim();
           if( contextText.length > 0 ){
               systemInstructionText += '\n' + behaiviorText + settings.DELIM + contextText;
           } else {
@@ -99,7 +105,7 @@ export const services: Record<string, ServicesConfig> = {
     'begin': {
         work: (data: any) => {
             console.log(global.color('green','[Context]\t'), 'Created new context');
-            fs.writeFile('./context.txt', '', (err) => {
+            fs.writeFile(path.join(settings.BASE_DIR, 'context.txt'), '', (err) => {
                   if (err) console.error(err);
                 });
         },
@@ -185,8 +191,9 @@ export const commands: Record<string, CommandConfig> = {
         work: (text: string) => {
             // Check for duplicates in context.txt
             /*try {
-                if (fs.existsSync('./context.txt')) {
-                    const existingContent = fs.readFileSync('./context.txt', 'utf-8');
+                const contextPath = path.join(settings.BASE_DIR, 'context.txt');
+                if (fs.existsSync(contextPath)) {
+                    const existingContent = fs.readFileSync(contextPath, 'utf-8');
                     const lines = existingContent.split('\n');
                     // Check if *any* line contains the exact text after the timestamp
                     // Line format: [HH:mm:ss] text matches
@@ -211,7 +218,7 @@ export const commands: Record<string, CommandConfig> = {
             const logLine = `[${time}] ${text}\n`;
 
             //console.log(global.color('red','[SAVE TEXT]\t'), text);
-            fs.appendFile('./context.txt', logLine, (err) => {
+            fs.appendFile(path.join(settings.BASE_DIR, 'context.txt'), logLine, (err) => {
                 if (err) console.error(err);
             });
             

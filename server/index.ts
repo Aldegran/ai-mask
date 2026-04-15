@@ -12,6 +12,7 @@ global.color = color;
 global.log = console.log;
 import { OledService } from './services/oled.service';
 import { GeminiService } from './services/gemini.service';
+import { GptService } from './services/gpt.service';
 import { AudioService } from './services/audio.service';
 import { VideoService } from './services/video.service';
 import { TTSService, voiceSettings } from './services/tts.service';
@@ -51,7 +52,8 @@ if (process.platform === 'linux') {
     }
 }
 
-dotenv.config();
+const envPath = path.resolve(__dirname, __dirname.endsWith('dist') ? '../.env' : '.env');
+dotenv.config({ path: envPath });
 
 // --- MODULE CONTROL ---
 // Toggle subsystems here
@@ -79,7 +81,7 @@ app.use(express.json());
 
 if (global.useModules.webServer) {
     app.get('/', (req, res) => {
-        res.sendFile(path.join(__dirname, 'index.html'));
+        res.sendFile(path.join(settings.BASE_DIR, 'index.html'));
     });
 
     // --- API ---
@@ -110,7 +112,7 @@ if (global.useModules.webServer) {
                  res.status(400).send("Invalid input");
                  return;
             }
-            fs.writeFileSync('instruction.txt', text, 'utf-8');
+            fs.writeFileSync(path.join(settings.BASE_DIR, 'instruction.txt'), text, 'utf-8');
             console.log(global.color('green','[System]\t'), `Instruction updated via web interface`, global.color('green','[OK]'));
             res.send("Saved.");
         } catch(e:any) {
@@ -185,7 +187,7 @@ if (global.useModules.webServer) {
 
 // --- BMP UPLOAD HANDLER ---
 const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: path.join(settings.BASE_DIR, 'uploads/') });
 const bmp = require('bmp-js');
 
 app.post('/upload-bmp', upload.single('bmp'), (req: any, res) => {
@@ -241,7 +243,12 @@ if (global.useModules.audio) {
     setAudioInstance(audioService);
 }
 
-const geminiService = GeminiService.getInstance();
+let geminiService: any;
+if (process.env.LLM === 'gpt') {
+    geminiService = GptService.getInstance();
+} else {
+    geminiService = GeminiService.getInstance();
+}
 setGeminiInstance(geminiService);
 
 let ttsService: TTSService | null = null;
@@ -538,14 +545,14 @@ try {
                     // Set flag immediately
                     isGeminiActive = true; 
                     
-                    console.log(global.color('cyan', '[GPIO]\t\t'), "Switch initially ON -> Enabling Gemini");
+                    console.log(global.color('cyan', '[GPIO]\t\t'), "Switch initially ON -> Enabling LLM");
                     
                     // Delay connection slightly to allow rest of server to settle
                     setTimeout(() => {
                         if(isGeminiActive) geminiService.connect();
                     }, 2000);
                 } else {
-                    console.log(global.color('yellow', '[GPIO]\t\t'), "Switch initially OFF -> Gemini Standby");
+                    console.log(global.color('yellow', '[GPIO]\t\t'), "Switch initially OFF -> LLM Standby");
                     isGeminiActive = false;
                 }
             } catch(e) { console.warn("GPIO Init Read Error", e); }
@@ -587,12 +594,12 @@ try {
                     if (l.includes('falling')) {
                         if (!isGeminiActive) {
                             lastToggleTime = now;
-                            console.log(global.color('cyan', '[GPIO]\t\t'),"Switch ON -> Enabling Gemini");
+                            console.log(global.color('cyan', '[GPIO]\t\t'),"Switch ON -> Enabling LLM");
                             isGeminiActive = true;
                             geminiService.connect();
                             if (global.useModules.webServer && wss) {
                                 wss.clients.forEach(c => {
-                                    if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: true }));
+                                    if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'llm_control_sync', enabled: true }));
                                 });
                             }
                         }
@@ -606,7 +613,7 @@ try {
                             geminiService.disconnect();
                             if (global.useModules.webServer && wss) {
                                 wss.clients.forEach(c => {
-                                    if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'gemini_control_sync', enabled: false }));
+                                    if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify({ type: 'llm_control_sync', enabled: false }));
                                 });
                             }
                         }

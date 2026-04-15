@@ -17,10 +17,15 @@
  * Эльф: "pitch 400 treble +3"
  */
 import { config } from 'dotenv';
+import path from 'path';
 
-config();
+// resolve dynamically to correctly find absolute path to /server
+const serverBaseDir = path.resolve(__dirname, __dirname.includes('dist') ? '../../' : '../');
+const envPath = path.join(serverBaseDir, '.env');
+config({ path: envPath });
 
 const settings = {
+    BASE_DIR: serverBaseDir,
     IS_LINUX: process.platform === 'linux',
     PORT: process.env.PORT || 5000,
     API_KEY: process.env.GEMINI_API_KEY || '',
@@ -46,4 +51,4 @@ const settings = {
     SPIT_TEXT: false, // Разбивать ли текст на предложения для ускорения первого звука
 };
 
-export default settings; 
+export default settings;

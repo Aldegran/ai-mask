@@ -28,13 +28,12 @@
 
 ## 5. Key Functionality
 1.  **PTT (Push-to-Talk):** Stream audio+video. AI responds with Audio + JSON.
-2.  **PTV (Push-to-Vision):** Stream video ONLY. AI updates context silently.
-3.  **Meta-Channel:** Оператор шепчет Мозгу контекст (через отдельную кнопку). Это системный ввод, не слышимый для игры.
-4.  **Emotions:** ИИ присылает JSON `{"emotion": "ANGRY"}`, Маска выводит картинку на экран.
-5.  **Voice Changer:** Весь звук (TTS, проигрывание файлов) проходит через **SoX Pipeline**.
+2.  **Meta-Channel:** Оператор шепчет Мозгу контекст (через отдельную кнопку). Это системный ввод, не слышимый для игры.
+3.  **Emotions:** ИИ присылает JSON `{"emotion": "ANGRY"}`, Маска выводит картинку на экран.
+4.  **Voice Changer:** Весь звук (TTS, проигрывание файлов) проходит через **SoX Pipeline**.
     * Эффекты: Pitch shift, Speed correction, Reverb, Overdrive.
     * Поток: Piper (RAW S16LE) -> Pipe -> SoX (Effects) -> Speaker/Web.
-6.  **Fail-safe & Watchdogs:** Авто-реконнект к Gemini при разрывах, тайм-аут на сохранение контекста.
+5.  **Fail-safe & Watchdogs:** Авто-реконнект к Gemini при разрывах, тайм-аут на сохранение контекста.
 
 ## 6. Language
 Весь игровой диалог — **Украинский**.

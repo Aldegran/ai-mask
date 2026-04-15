@@ -31,24 +31,44 @@
         * Пайплайн: `TTS Output (Raw)` -> `SoX (Effects)` -> `Speaker (Server)` / `WAV (Web)`.
         * Поддержка параметров: `pitch`, `speed` (инверсия length_scale), `echo`, `reverb`, `overdrive`.
 
-### 2.3. WebSocket Interaction (Gemini API)
+### 2.3. WebSocket Interaction (LLM API)
+Осуществляется поддержка двух режимов через конфигурацию `.env` (`LLM=gemini` или `LLM=gpt`):
+**Для Gemini (gemini.service.ts):**
 * Адрес: `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent`
-* Handshake: Передача `setup` сообщения с системным промптом (см. context.md) и определением `response_modalities` (AUDIO + TEXT).
-* Keep-Alive: Реализовать пинг-понг или отправку пустых фреймов, чтобы соединение не рвалось.
+* Формат: Передача `setup` с системным промптом и `response_modalities` (AUDIO + TEXT). Прямой стриминг `realtime_input` (медиа чанки base64).
+
+**Для OpenAI ChatGPT (gpt.service.ts):**
+* Модель: `gpt-4o-realtime` (Realtime WebSocket API).
+* Адрес: `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime`
+* Формат: Передача `session.update`, стриминг аудио через `input_audio_buffer.append`. Адаптировано игнорирование или отправка видео фреймов, так как нативная поддержка видео в WS Realtime пока отличается от Gemini.
+
+* Keep-Alive: Реализовать пинг-понг (передача аудио тишины или `ping.wav`).
 * Context Handling: При старте сессии загружать фиктивный "предыдущий контекст" из JSON файла (эмуляция памяти).
 
 ### 2.4. Output Handling
 * **JSON Parsing:** Парсить текстовый канал от Gemini. Искать поле `emotion`.
-* **Visualization:** В консоль выводить ASCII-арт или текст текущей эмоции (вместо реального LED экрана): `[DISPLAY]: HAPPY`.
+* **Visualization (Web UI):** Отображение текущей эмоции и логов в веб-интерфейсе.
+
+### 2.5. Интеграция LED Матрицы (WS2812B 16x32)
+* **Драйвер матрицы:** Отдельный Python-скрипт (`display.py`), использующий библиотеку `neopixel` для аппаратного управления светодиодами (RPi GPIO 18, требуется `sudo`).
+* **Бинарный протокол (IPC):** Node.js передает данные в Python через `stdin` в бинарном формате для максимальной скорости.
+    * Команда `D` + 512 байт: Отрисовка кадра (индексы цветов).
+    * Команда `C`: Очистка матрицы.
+    * Команды `L` / `N`: Включение/выключение режима "Лампа" (аппаратный overlay).
+* **Конвертация графики:** Встроенный обработчик загрузки BMP (форматы 16x32, либо 32x16 с автоматическим поворотом по часовой стрелке). Изображение конвертируется в кастомную 256-цветную палитру и сохраняется в бинарные `.hex` файлы.
+* **Маппинг эмоций:** При получении эмоции от Gemini, система ищет соответствующий файл (например, `angry.hex`). Если файла нет, используется фоллбек (заливка цветом).
+* **Режим "Лампа":** Наложение прозрачной маски (`lamp.hex`) поверх основного изображения. Чёрный цвет (0,0,0) считается прозрачным.
 
 ## 3. Code Structure Constraints
-* Модульность: Вынести логику аудио, видео и сокетов в отдельные классы.
-* Конфиг: Все настройки (API Key, Device IDs) в `.env`.
-* Error Handling: Авто-реконнект при разрыве сокета.
+* Модульность: Вынести логику аудио, видео, сокетов и экрана в отдельные классы.
+* Конфиг: Все настройки (API Key, Device IDs) в `.env` и общем конфиге.
+* Error Handling: Авто-реконнект при разрыве сокета. Слежение за дочерними процессами (Python, Piper).
 
 ## 4. Deliverables
-* `index.ts` (Main entry point)
+* `index.ts` (Main entry point / Web Server)
 * `services/gemini.service.ts`
+* `services/gpt.service.ts`
 * `services/audio.service.ts`
 * `services/video.service.ts`
-* `utils/led-emulator.ts`
+* `services/display.service.ts` (Управление LED матрицей)
+* `tools/display/display.py` (Аппаратный драйвер Python)

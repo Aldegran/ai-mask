@@ -1,0 +1,1 @@
+pm2 logs ai-mask-server --lines 50
