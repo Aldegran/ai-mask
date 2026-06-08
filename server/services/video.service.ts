@@ -4,15 +4,44 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import EventEmitter from 'events';
 import settings from '../config/index';
 
+/**
+ * VIDEO_DETAIL presets (controlled via .env VIDEO_DETAIL=high|low)
+ *
+ * high — 640×480, JPEG q=5  → GPT: 2 tiles × 425 tok/frame  (~1.2 min on 32K ctx)
+ * low  — 320×240, JPEG q=15 → GPT: detail="low" × 85 tok/frame (~43 min on 32K ctx)
+ *
+ * GPT token math:
+ *   high (640×480, detail=auto): ceil(640/512)×ceil(480/512)=2 tiles → 85+170×2 = 425 tok
+ *   low  (320×240, detail=low):  always flat 85 tok regardless of resolution
+ */
+const VIDEO_PRESETS = {
+    high: { width: 640, height: 480, quality: 5,  gptDetail: 'auto' as const },
+    low:  { width: 320, height: 240, quality: 15, gptDetail: 'low'  as const },
+};
+
+export type VideoDetail = keyof typeof VIDEO_PRESETS;
+
 export class VideoService extends EventEmitter {
     private static instance: VideoService;
     private ffmpegProcess: any;
     private buffer: Buffer = Buffer.alloc(0);
     private isRunning: boolean = false;
-    
+
+    private readonly preset = VIDEO_PRESETS[settings.VIDEO_DETAIL] ?? VIDEO_PRESETS.high;
+
     // Throttling logic
     private lastFrameTime: number = 0;
     private frameInterval: number = 1000 / settings.FPS;
+
+    /** Returns the GPT detail level for the active preset ('auto' | 'low') */
+    public getGptDetail(): 'auto' | 'low' {
+        return this.preset.gptDetail;
+    }
+
+    /** Returns active capture dimensions and quality for status/UI endpoints */
+    public getPreset() {
+        return { ...this.preset, name: settings.VIDEO_DETAIL };
+    }
 
     private constructor() {
         super();
@@ -51,14 +80,16 @@ export class VideoService extends EventEmitter {
 
         // Helper to start the actual capture process
         const startProcess = (deviceName: string) => {
+            const { width, height, quality } = this.preset;
             console.log(global.color('green','[Video]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
+            console.log(global.color('green','[Video]\t\t'), `Preset: ${global.color('cyan', settings.VIDEO_DETAIL)} (${width}×${height}, q=${quality}, gpt-detail=${this.preset.gptDetail})`);
             
             if (settings.IS_LINUX) {
                 // Raspberry Pi Camera using rpicam-vid (modern libcamera stack)
                 const args = [
                     '-t', '0',
-                    '--width', settings.CAMERA_WIDTH.toString(),
-                    '--height', settings.CAMERA_HEIGHT.toString(),
+                    '--width',  width.toString(),
+                    '--height', height.toString(),
                     '--framerate', settings.CAMERA_FPS.toString(),
                     '--codec', 'mjpeg',
                     '--rotation', '180',
@@ -70,12 +101,12 @@ export class VideoService extends EventEmitter {
             } else {
                 const args = [
                     '-f', 'dshow',
-                    '-video_size', `${settings.CAMERA_WIDTH}x${settings.CAMERA_HEIGHT}`,
+                    '-video_size', `${width}x${height}`,
                     '-rtbufsize', '100M',
                     '-i', `video=${deviceName}`,
                     '-r', settings.CAMERA_FPS.toString(),
                     '-c:v', 'mjpeg',
-                    '-q:v', '10',
+                    '-q:v', quality.toString(),
                     '-f', 'image2pipe',
                     'pipe:1'
                 ];
@@ -87,7 +118,10 @@ export class VideoService extends EventEmitter {
             });
 
             this.ffmpegProcess.stderr.on('data', (data: Buffer) => {
-                if(data.indexOf("INFO")<0) console.log(global.color('red','[Video]\t\t'),`stderr: ${data}`); 
+                const s = data.toString();
+                if (s.includes('INFO')) return;
+                if (s.includes('WARN')) return; // libcamera udev/hotplug noise — harmless
+                console.log(global.color('red','[Video]\t\t'), `stderr: ${s}`);
             });
 
             this.ffmpegProcess.on('error', (err: any) => {

@@ -37,10 +37,11 @@ export class AudioService extends EventEmitter {
         const startProcess = (deviceName: string) => {
             console.log(global.color('green','[Audio]\t\t'), 'Connecting to device:', global.color('yellow', deviceName));
             
+            const sampleRate = settings.MIC_SAMPLE_RATE.toString();
             const args = settings.IS_LINUX ? [
                 '-f', 'alsa',
                 '-i', deviceName, 
-                '-ar', '16000',
+                '-ar', sampleRate,
                 '-ac', '1',
                 '-f', 's16le',
                 '-filter:a', `volume=${settings.MIC_VOLUME_GAIN.toFixed(1)}`, // Dynamic volume
@@ -49,7 +50,7 @@ export class AudioService extends EventEmitter {
                 '-f', 'dshow',
                 '-audio_buffer_size', '10',
                 '-i', `audio=${deviceName}`,
-                '-ar', '16000',
+                '-ar', sampleRate,
                 '-ac', '1',
                 '-f', 's16le',
                 'pipe:1'
@@ -155,16 +156,15 @@ export class AudioService extends EventEmitter {
         let effectArgs = settings.SOX_ECHO_PARAMS.split(' ');
         if (settings.EXT_VOLUME !== 1.0) effectArgs.push('vol', settings.EXT_VOLUME.toFixed(2));
         effectArgs = effectArgs.filter(x => x.length > 0);
-        // FFmpeg output is 16000Hz s16le mono
-        // Added --buffer to reduce glitching (increased to 4096)
-        const rawFormatArgs = ['--buffer', '512', '-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer'];
+        const sampleRate = settings.MIC_SAMPLE_RATE.toString();
+        const rawFormatArgs = ['--buffer', '512', '-t', 'raw', '-r', sampleRate, '-b', '16', '-c', '1', '-e', 'signed-integer'];
         
         console.log(global.color('blue', '[Audio]\t\t'), "Launching Persistent Voice Changer...");
 
         try {
             // If mode is NOT web, we output directly to the speakers
             const outputArgs = (mode === 'web') 
-                ? ['-t', 'raw', '-r', '16000', '-b', '16', '-c', '1', '-e', 'signed-integer', '-'] 
+                ? ['-t', 'raw', '-r', sampleRate, '-b', '16', '-c', '1', '-e', 'signed-integer', '-'] 
                 : ['-r', '48000', '-q', '-t', driver, device];
 
             this.soxProcess = spawn(soxExe, [

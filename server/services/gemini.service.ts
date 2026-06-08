@@ -224,7 +224,7 @@ export class GeminiService extends EventEmitter {
         this.socket.send(JSON.stringify(msg));
     }
 
-    public sendAudioChunk(c: Buffer, mimeType: string = "audio/pcm") {
+    public sendAudioChunk(c: Buffer, mimeType: string = `audio/pcm;rate=${settings.MIC_SAMPLE_RATE}`) {
         if (!this.isConnected || !this.socket || this.restartStage) return;
 
         const msg = {
@@ -241,7 +241,7 @@ export class GeminiService extends EventEmitter {
     }
 
     public sendSilence() {
-        this.sendAudioChunk(Buffer.alloc(16000));
+        this.sendAudioChunk(Buffer.alloc(settings.MIC_SAMPLE_RATE * 2));
     }
 
     public sendTextMessage(text: string) {

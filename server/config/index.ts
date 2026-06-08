@@ -38,11 +38,13 @@ const settings = {
     CAMERA_FPS: 30, // Hardware capture FPS
     CAMERA_WIDTH: 640,
     CAMERA_HEIGHT: 480,
+    VIDEO_DETAIL: (process.env.VIDEO_DETAIL || 'high') as 'high' | 'low',
     TTS_FOR: "SAY",
     PI_VOLUME: 1.0,
     EXT_VOLUME: 0.1,
     ENABLE_CLIENT_MIC_MONITORING: false, 
     USE_VOICE_CHANGER: true,
+    MIC_SAMPLE_RATE: parseInt(process.env.MIC_SAMPLE_RATE || '24000'),
     MIC_VOLUME_GAIN: 5.0, // Volume multiplier (5.0 = 500%)
     SOX_PARAMS: "pitch -50 echo 0.8 0.8 60 0.4 reverb 10 100 speed [s]",
     SOX_ECHO_PARAMS: "pitch 200 echo 0.8 0.8 60 0.4 reverb 10 100",

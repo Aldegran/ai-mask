@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import { OledService } from './oled.service';
 import { ProtocolProcessor } from './processor';
 import { getCommandConfig, serviceStart, serviceStop, buildInstruction } from '../config/commands';
+import { VideoService } from './video.service';
 import settings from '../config/index';
 
 config();
@@ -43,12 +44,12 @@ export class GptService extends EventEmitter {
             return;
         }
 
-        const url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28";
+        const model = process.env.GPT_MODEL || "gpt-realtime-1.5";
+        const url = `wss://api.openai.com/v1/realtime?model=${model}`;
         
         this.socket = new WebSocket(url, {
             headers: {
-                "Authorization": "Bearer " + apiKey,
-                "OpenAI-Beta": "realtime=v1"
+                "Authorization": "Bearer " + apiKey
             }
         });
 
@@ -115,11 +116,9 @@ export class GptService extends EventEmitter {
         const setupMsg = {
             type: "session.update",
             session: {
-                modalities: ["text"],
-                instructions: systemInstructionText,
-                temperature: 0.6,
-                input_audio_format: "pcm16",
-                output_audio_format: "pcm16"
+                type: "realtime",
+                output_modalities: ["text"],
+                instructions: systemInstructionText
             }
         };
 
@@ -130,13 +129,15 @@ export class GptService extends EventEmitter {
     public sendVideoFrame(c: Buffer) {
         if (!this.isConnected || !this.socket || this.restartStage) return;
         
+        const detail = VideoService.getInstance().getGptDetail();
         const msg = {
             type: "conversation.item.create",
             item: {
                 type: "message",
                 role: "user",
                 content: [{ 
-                    type: "input_image", 
+                    type: "input_image",
+                    detail,
                     image_url: `data:image/jpeg;base64,${c.toString('base64')}` 
                 }]
             }
@@ -154,7 +155,8 @@ export class GptService extends EventEmitter {
     }
 
     public sendSilence() {
-        this.sendAudioChunk(Buffer.alloc(16000));
+        const sampleRate = parseInt(process.env.MIC_SAMPLE_RATE || '24000');
+        this.sendAudioChunk(Buffer.alloc(sampleRate * 2));
     }
 
     public sendTextMessage(text: string) {
@@ -198,11 +200,11 @@ export class GptService extends EventEmitter {
                 this.isResponding = false;
             }
 
-            if (msg.type === "response.text.delta" || msg.type === "response.audio_transcript.delta") {
+            if (msg.type === "response.output_text.delta" || msg.type === "response.output_audio_transcript.delta") {
                 this.responseBuffer += msg.delta;
             }
             
-            if (msg.type === "response.done" || msg.type === "response.text.done" || msg.type === "response.audio_transcript.done") {
+            if (msg.type === "response.done" || msg.type === "response.output_text.done" || msg.type === "response.output_audio_transcript.done") {
                 const finalResponse = this.responseBuffer.trim();
                 if (finalResponse.length > 0) {
                     this.processTextMarkers(finalResponse);

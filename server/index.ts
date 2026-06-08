@@ -93,16 +93,16 @@ if (global.useModules.webServer) {
     });
 
     app.get('/settings', (req, res) => {
-        const { 
-            FPS,
-            CAMERA_FPS,
-            CAMERA_WIDTH,
-            CAMERA_HEIGHT,
-            TTS_FOR,
-            ENABLE_CLIENT_MIC_MONITORING,
-        } = settings;
+        const { FPS, CAMERA_FPS, TTS_FOR, ENABLE_CLIENT_MIC_MONITORING } = settings;
+        const preset = VideoService.getInstance().getPreset();
 
-        res.json({ FPS,CAMERA_FPS,CAMERA_WIDTH,CAMERA_HEIGHT,TTS_FOR, ENABLE_CLIENT_MIC_MONITORING });
+        res.json({
+            FPS, CAMERA_FPS, TTS_FOR, ENABLE_CLIENT_MIC_MONITORING,
+            CAMERA_WIDTH:    preset.width,
+            CAMERA_HEIGHT:   preset.height,
+            VIDEO_DETAIL:    preset.name,
+            video_gpt_detail: preset.gptDetail,
+        });
     });
 
     app.post('/instruction', (req, res) => {
